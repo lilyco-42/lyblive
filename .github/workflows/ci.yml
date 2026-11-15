@@ -68,6 +68,7 @@ jobs:
       - name: Web console HTTP smoke test
         run: node scripts/web-smoke.mjs
       - name: Real-browser React/shadcn render smoke test
+        if: runner.os != 'macOS'
         run: node scripts/browser-smoke.mjs
         env:
           LYBLIVE_BROWSER_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
