@@ -76,7 +76,7 @@ POST 请求体用 camelCase（areaId、roomId、rememberLogin），API 层映射
 
 Cargo features：default = ["tui", "browser"]，tui = ["lilyco/tui"]，browser = ["dep:webbrowser"]，headless = []。webbrowser 是 optional 目标依赖，Android/iOS 通过 cfg 排除；api.rs 的自动打开浏览器另有 feature 门控。lilyco 关闭默认特性后可在无 crossterm 的 headless 目标回退到 CLI。Android/Termux 建议使用 --no-default-features --features headless。
 
-.github/workflows/ci.yml 已设计 Linux/macOS/Windows 桌面矩阵与 Android aarch64-linux-android / x86_64-linux-android 双 ABI headless 构建，桌面矩阵 release 后运行 node scripts/smoke.mjs、node scripts/mcp-smoke.mjs、node scripts/web-smoke.mjs 与 node scripts/browser-smoke.mjs，并经 PyYAML 语法校验与 `node scripts/ci-contract.mjs` 工作流契约回归（桌面三 OS、Android 双 ABI、三份上传均设 `if-no-files-found: error`、`pnpm build` 必须先于 cargo、Web 资源禁止 build.rs 占位页，JS/CSS/5 个 woff2 字体及编译后二进制内嵌字节逐项一致）；但本目录不是 Git 仓库，未推送也未实跑远端 CI。Round 14 严格回环校验修复后本机最终回归全绿：cargo fmt、clippy -D warnings、33 项 Rust 测试（Round 14 补充严格 Host/Origin authority 正例/反例，含 `agent_whitelist_matches_registry_tiers_and_gate` 穷举白名单/分级一致性、`registered_handlers_enforce_runtime_policy_for_local_and_agent` 直接调用 Local/Agent 注册表 handler 验证放行与安全门、Router::oneshot 非回环 Host 403 及回环 Web T1 路由直达 `commands::dispatch` 的回归）、headless check、release、四套 Node smoke（CLI / MCP Agent schema+白名单对齐 / Web HTTP+SSE+严格 Host/Origin / 真实浏览器）、pnpm lint（0 errors）与 pnpm build。已根据 Round 14 补丁重建六份未签名二进制；其中四份完成运行验证，macOS 双架构仅做静态验证：
+.github/workflows/ci.yml 已设计 Linux/macOS/Windows 桌面矩阵与 Android aarch64-linux-android / x86_64-linux-android 双 ABI headless 构建，桌面矩阵 release 后运行 node scripts/smoke.mjs、node scripts/mcp-smoke.mjs、node scripts/web-smoke.mjs 与 node scripts/browser-smoke.mjs，并经 PyYAML 语法校验与 `node scripts/ci-contract.mjs` 工作流契约回归（桌面三 OS、Android 双 ABI、三份上传均设 `if-no-files-found: error`、`pnpm build` 必须先于 cargo、Web 资源禁止 build.rs 占位页，JS/CSS/5 个 woff2 字体及编译后二进制内嵌字节逐项一致）；远程仓库为 https://github.com/lilyco-42/lyblive ，CI 由推送与 v* 标签触发；publish job 只在 v* 标签推送时把 Linux/Windows/macOS/Android 五个未签名二进制与 SHA256SUMS 发布到 GitHub Release。Round 14 严格回环校验修复后本机最终回归全绿：cargo fmt、clippy -D warnings、33 项 Rust 测试（Round 14 补充严格 Host/Origin authority 正例/反例，含 `agent_whitelist_matches_registry_tiers_and_gate` 穷举白名单/分级一致性、`registered_handlers_enforce_runtime_policy_for_local_and_agent` 直接调用 Local/Agent 注册表 handler 验证放行与安全门、Router::oneshot 非回环 Host 403 及回环 Web T1 路由直达 `commands::dispatch` 的回归）、headless check、release、四套 Node smoke（CLI / MCP Agent schema+白名单对齐 / Web HTTP+SSE+严格 Host/Origin / 真实浏览器）、pnpm lint（0 errors）与 pnpm build。已根据 Round 14 补丁重建六份未签名二进制；其中四份完成运行验证，macOS 双架构仅做静态验证：
 
 - Linux x86_64 release（6247424 B）：CLI、MCP、HTTP/静态/SSE/Host/Origin 全链路。
 - Windows x86_64-pc-windows-gnu PE32+（5591040 B，Zig 0.17.1 + llvm-dlltool）：Wine 下四套 smoke 全过，覆盖 CLI、MCP（19 工具、Agent 放行/拒绝）、Web（/api/health、首页、/api/commands 20 条、静态资源/字体、严格 Host/Origin、SSE）与真实 Chrome React/shadcn 渲染。
@@ -85,7 +85,7 @@ Cargo features：default = ["tui", "browser"]，tui = ["lilyco/tui"]，browser =
 - macOS aarch64-apple-darwin Mach-O（4749904 B，minos 11.0）：file/llvm-otool/llvm-nm 静态验证，动态依赖 /usr/lib/libSystem.B.dylib 与 /usr/lib/libiconv.dylib；未在真实 macOS 执行。
 - macOS x86_64-apple-darwin Mach-O（5347816 B，minos 10.12）：同套静态验证与动态依赖；未在真实 macOS 执行。
 
-Windows MSVC 与 macOS 原生运行验证仍依赖 CI 工具链。本机 macOS 产物用 Zig 与仅链接期解析 -liconv 的 libiconv.tbd stub 交叉链接，stub 不打包进产物，产物未签名/公证；不产出签名安装包、APK 或应用商店发布流程。
+Windows MSVC 与 macOS 原生构建/运行验证由 GitHub Actions 的 windows-latest / macos-latest runner 执行；v* 标签推送还会在所有 job 成功后自动创建 Release。本机 macOS 产物用 Zig 与仅链接期解析 -liconv 的 libiconv.tbd stub 交叉链接，stub 不打包进产物，产物未签名/公证；不产出签名安装包、APK 或应用商店发布流程。
 
 ## 验证命令
 
@@ -111,9 +111,9 @@ node scripts/browser-smoke.mjs
 
 - 真实登录、开播、停播、发弹幕和弹幕长连接需要用户自己的 B 站会话；本机验收只覆盖打桩、未登录路径、协议解析、安全门与离线命令，不使用或存储用户凭据。
 - 上游弹幕 INTERACT_WORD_V2 的 protobuf 负载没有引入 prost，首版按普通进场/系统事件处理或忽略。
-- Linux、Windows GNU 与 Android arm64/x86_64 headless 已有本机产物与实跑验证；四个 Node smoke 均支持显式二进制与 Wine 包装器；web-smoke.mjs 已在 Linux 与 Wine/Windows GNU 下验证 Web 首页、静态资源、SPA 回落、API、严格 Host/Origin 安全门（含 127.* DNS 后缀、畸形端口与 IPv6 正例）与 SSE；browser-smoke.mjs 已在 Linux 与 Wine/Windows GNU 下通过真实 Chrome 验证 React 挂载、五个 shadcn Tab 的鼠标/键盘切换、Geist/Tailwind 计算样式与无 JS 异常；macOS 双架构仅有本机静态验证（未在真实 macOS 执行、未签名/公证）；Windows MSVC 与 macOS 原生运行验证仅有 CI 源码级矩阵（workflow 未推送/未实跑）；不含签名安装包、APK 或应用商店发布流程。
+- Linux、Windows GNU 与 Android arm64/x86_64 headless 已有本机产物与实跑验证；四个 Node smoke 均支持显式二进制与 Wine 包装器；web-smoke.mjs 已在 Linux 与 Wine/Windows GNU 下验证 Web 首页、静态资源、SPA 回落、API、严格 Host/Origin 安全门（含 127.* DNS 后缀、畸形端口与 IPv6 正例）与 SSE；browser-smoke.mjs 已在 Linux 与 Wine/Windows GNU 下通过真实 Chrome 验证 React 挂载、五个 shadcn Tab 的鼠标/键盘切换、Geist/Tailwind 计算样式与无 JS 异常；macOS 双架构仅有本机静态验证（未在真实 macOS 执行、未签名/公证）；Windows MSVC 与 macOS 原生构建/运行验证由 GitHub Actions 工作流在 windows-latest / macos-latest runner 执行；不含签名安装包、APK 或应用商店发布流程。
 本机若 ~/.cargo/config.toml 把 [build] target-dir 指向共享缓存，必须给 cargo 与四个 smoke 显式设置同一个 CARGO_TARGET_DIR=$PWD/target；否则 cargo 更新的二进制与 smoke 默认读取的 target/release/lyblive 可能不是同一份。`node scripts/ci-contract.mjs --embedded` 与 `web-smoke.mjs` 的内嵌字节/HTTP 字节比对会直接暴露这种陈旧二进制。
-- 本目录不是 Git 仓库，没有提交或推送任何代码。
+- 源码已推送到 https://github.com/lilyco-42/lyblive ；release 资产为 runner 生成的未签名二进制，请用 GitHub Release 中的 SHA256SUMS 校验。
 
 ## 本机 Windows GNU 交叉验证（可选）
 

@@ -331,7 +331,17 @@ async function main() {
     }
     const target = await send("Target.createTarget", { url: "about:blank" })
     sessionId = (await send("Target.attachToTarget", { targetId: target.targetId, flatten: true })).sessionId
-    for (const method of ["Runtime.enable", "Page.enable", "Log.enable"]) await send(method, {}, sessionId)
+    // Renderer startup is slower on some macOS runners; a freshly attached target can
+    // briefly ignore Domain.enable. Retry instead of failing the whole matrix.
+    await sleep(500)
+    async function enableWithRetry(method) {
+      let last = null
+      for (let i = 0; i < 5; i += 1) {
+        try { await send(method, {}, sessionId); return } catch (e) { last = e; await sleep(600) }
+      }
+      throw last
+    }
+    for (const method of ["Runtime.enable", "Page.enable", "Log.enable"]) await enableWithRetry(method)
     await send("Page.addScriptToEvaluateOnNewDocument", { source: "(" + installBrowserErrors.toString() + ")()" }, sessionId)
     await send("Page.navigate", { url: base }, sessionId)
 

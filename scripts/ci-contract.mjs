@@ -130,6 +130,7 @@ const browserSmokeSource = readFileSync(browserSmokePath, 'utf8')
 must(browserSmokeSource.includes('spawnSync("taskkill", ["/PID"'), 'browser-smoke Windows tree-kill drift')
 must(browserSmokeSource.includes('detached: process.platform !== "win32"'), 'browser-smoke Chrome process-group drift')
 must(browserSmokeSource.includes('await killProcess(chrome, true)'), 'browser-smoke Chrome group cleanup drift')
+must(browserSmokeSource.includes('enableWithRetry'), 'browser-smoke CDP renderer startup retry drift')
 const indexPath = findOne(['web/dist/index.html', 'assets/index.html'])
 if (requireAssets || requireEmbedded) must(indexPath, 'built Web asset index missing before cargo/parity')
 let assets = 'not present (structure only)'
