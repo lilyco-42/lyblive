@@ -1,0 +1,174 @@
+name: lyblive CI
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  desktop:
+    name: desktop
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: CI workflow contract
+        run: node scripts/ci-contract.mjs
+      - name: Install web dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: Lint web
+        working-directory: web
+        run: pnpm lint
+      - name: Build web console
+        working-directory: web
+        run: pnpm build
+      - name: Built Web asset guard
+        run: node scripts/ci-contract.mjs --assets
+      - name: Setup Chrome for browser smoke
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+          install-dependencies: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Rust formatting
+        run: cargo fmt -- --check
+      - name: Rust clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Rust tests
+        run: cargo test
+      - name: Headless feature check
+        run: cargo check --no-default-features --features headless --all-targets
+      - name: Rust release build
+        run: cargo build --release
+      - name: Embedded Web asset parity
+        run: node scripts/ci-contract.mjs --embedded
+      - name: Binary smoke test
+        run: node scripts/smoke.mjs
+      - name: MCP Agent surface smoke test
+        run: node scripts/mcp-smoke.mjs
+      - name: Web console HTTP smoke test
+        run: node scripts/web-smoke.mjs
+      - name: Real-browser React/shadcn render smoke test
+        run: node scripts/browser-smoke.mjs
+        env:
+          LYBLIVE_BROWSER_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+      - name: Upload release binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyblive-${{ matrix.os }}
+          path: |
+            target/release/lyblive
+            target/release/lyblive.exe
+          if-no-files-found: error
+
+  android-headless:
+    name: android headless source build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.19.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: CI workflow contract
+        run: node scripts/ci-contract.mjs
+      - name: Install web dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+      - name: Build web console
+        working-directory: web
+        run: pnpm build
+      - name: Built Web asset guard
+        run: node scripts/ci-contract.mjs --assets
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, x86_64-linux-android
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'ndk;27.3.13750724'
+      - uses: Swatinem/rust-cache@v2
+      - name: Build Android headless CLI/MCP
+        shell: bash
+        run: |
+          export NDK_BIN="$ANDROID_HOME/ndk/27.3.13750724/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$NDK_BIN/aarch64-linux-android24-clang"
+          export AR_aarch64_linux_android="$NDK_BIN/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android24-clang"
+          export CC_x86_64_linux_android="$NDK_BIN/x86_64-linux-android24-clang"
+          export AR_x86_64_linux_android="$NDK_BIN/llvm-ar"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDK_BIN/x86_64-linux-android24-clang"
+          cargo build --release --no-default-features --features headless --target aarch64-linux-android
+          cargo build --release --no-default-features --features headless --target x86_64-linux-android
+      - name: Embedded Web asset parity
+        run: node scripts/ci-contract.mjs --embedded target/aarch64-linux-android/release/lyblive target/x86_64-linux-android/release/lyblive
+      - name: Upload Android arm64 headless binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyblive-android-arm64
+          path: target/aarch64-linux-android/release/lyblive
+          if-no-files-found: error
+      - name: Upload Android x86_64 headless binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: lyblive-android-x86_64
+          path: target/x86_64-linux-android/release/lyblive
+          if-no-files-found: error
+  publish:
+    name: publish release
+    needs: [desktop, android-headless]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Stage release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          find artifacts -maxdepth 3 -type f -printf '%p\n' | sort
+          mkdir -p release
+          pick() {
+            local artifact="$1" dest="$2" name="$3" src
+            src="$(find "artifacts/$artifact" -type f -name "$name" -print -quit)"
+            test -n "$src" || { echo "missing $name in $artifact" >&2; exit 1; }
+            cp "$src" "release/$dest"
+          }
+          pick lyblive-ubuntu-latest lyblive-linux-x86_64 lyblive
+          pick lyblive-windows-latest lyblive-windows-x86_64.exe lyblive.exe
+          pick lyblive-macos-latest lyblive-macos lyblive
+          pick lyblive-android-arm64 lyblive-android-aarch64 lyblive
+          pick lyblive-android-x86_64 lyblive-android-x86_64 lyblive
+          chmod +x release/lyblive-linux-x86_64 release/lyblive-macos release/lyblive-android-aarch64 release/lyblive-android-x86_64
+          cd release
+          sha256sum lyblive-* > SHA256SUMS
+          sha256sum -c SHA256SUMS
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: 'gh release create "${GITHUB_REF_NAME}" --title "lyblive ${GITHUB_REF_NAME}" --notes "Automated release - Linux x86_64, Windows x86_64, macOS runner-native, Android arm64/x86_64. Binaries are unsigned; verify SHA256SUMS." release/*'

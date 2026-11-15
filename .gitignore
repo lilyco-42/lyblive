@@ -1,0 +1,12 @@
+/target/
+/target-zigwin/
+/target-android/
+/target-macos/
+/target-msvc/
+/web/node_modules/
+/web/dist/
+/.dsh-project-memory/
+*.log
+*.tmp
+/dist/
+/toolchains/
