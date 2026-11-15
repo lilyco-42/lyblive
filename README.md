@@ -153,3 +153,12 @@ adb shell 'chmod 755 /data/local/tmp/lyblive && /data/local/tmp/lyblive health -
 ~~~
 
 两个 target 都会交叉编译并留在 `target-android/`；`adb` 只推送并执行与设备 `ro.product.cpu.abi` 匹配的那一份，另一份是构建产物，不应假设能在同一设备原生执行。aarch64 产物只链接 libdl/libm/libc，可直接在 arm64 设备或支持 arm64-v8a 的模拟器上运行；x86_64 产物在 x86_64 模拟器上原生运行，不依赖 arm64 二进制转译。Web 控制台在设备内监听 127.0.0.1，可用 adb forward 在主机浏览器访问。
+## 本地部署（systemd user）
+当前开发机已把 lyblive Web 控制台部署为用户级 systemd 服务，默认只监听回环地址 `127.0.0.1:8768`（端口 8765 已由 AgentDock 占用，8766/8767 分别是 lycodl/lycomc）：
+
+```bash
+systemctl --user status lyblive.service
+curl -sS -H 'Host: 127.0.0.1:8768' http://127.0.0.1:8768/api/health
+```
+
+打开：<http://127.0.0.1:8768/>。服务单元位于 `~/.config/systemd/user/lyblive.service`，程序位于 `~/.local/bin/lyblive`，日志可用 `journalctl --user -u lyblive.service -f` 查看。默认不持久化登录凭据；如需改端口，编辑单元的 `LYBLIVE_PORT` 后执行 `systemctl --user daemon-reload && systemctl --user restart lyblive.service`。
