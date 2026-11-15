@@ -217,6 +217,7 @@ if (requireEmbedded) {
   }
 }
 must(ci.includes('gh release create'), 'publish/release step missing for tags')
+must(ci.includes('gh release create --repo "$GITHUB_REPOSITORY"'), 'publish must set --repo for detached artifact job')
 must(ci.includes('needs: [desktop, android-headless]'), 'publish must depend on build jobs')
 must(ci.includes('actions/download-artifact@v4'), 'publish must download build artifacts')
 must(ci.includes("if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"), 'publish must be tag-gated')
