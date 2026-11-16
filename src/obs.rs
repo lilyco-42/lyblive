@@ -65,12 +65,12 @@ pub fn obs_running() -> bool {
     false
 }
 
-/// 纯函数：重写 user.ini 文本。返回 (新文本, 是否有改动, 是否重置了 DockState)。
-pub fn rewrite(text: &str, port: u16) -> (String, bool, bool) {
+/// 纯函数：重写 user.ini 文本。返回 (新文本, 是否有改动)。
+/// 注意：**保留 DockState**（删除它会让 OBS 的 restoreState 隐藏 lyblive 面板）。
+pub fn rewrite(text: &str, port: u16) -> (String, bool) {
     let desired = dock_line(port);
     let mut out: Vec<String> = Vec::new();
     let mut has_dock = false;
-    let mut reset_dock_state = false;
     let mut section = String::new();
 
     for line in text.lines() {
@@ -78,10 +78,8 @@ pub fn rewrite(text: &str, port: u16) -> (String, bool, bool) {
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
             section = trimmed.to_string();
         }
-        if trimmed.starts_with("DockState=") {
-            reset_dock_state = true;
-            continue;
-        }
+        // 保留 DockState：OBS 的 restoreState 会隐藏 state 里不存在的 dock，
+        // 删掉它反而让 lyblive 面板不可见。只补 ExtraBrowserDocks。
         if trimmed.starts_with("ExtraBrowserDocks=") {
             if !has_dock {
                 out.push(desired.clone());
@@ -100,7 +98,7 @@ pub fn rewrite(text: &str, port: u16) -> (String, bool, bool) {
     if !new_text.ends_with('\n') {
         new_text.push('\n');
     }
-    (new_text.clone(), new_text != text, reset_dock_state)
+    (new_text.clone(), new_text != text)
 }
 
 pub struct Status {
@@ -132,7 +130,7 @@ pub fn install(port: u16) -> Result<String> {
             path.display()
         )
     })?;
-    let (new_text, changed, reset) = rewrite(&text, port);
+    let (new_text, changed) = rewrite(&text, port);
     if !changed {
         return Ok(format!(
             "已是目标配置，无需修改：{}（面板地址 {}）",
@@ -150,11 +148,10 @@ pub fn install(port: u16) -> Result<String> {
     let mut notes = vec![format!("已写入 {}", path.display())];
     notes.push(format!("面板地址 {}", dock_url(port)));
     notes.push(format!("备份 {}", backup.display()));
-    notes.push(if reset {
-        "已重置 DockState（避免面板被恢复成窄条）".to_string()
-    } else {
-        "DockState 无需重置".to_string()
-    });
+    notes.push(
+        "已保留 DockState；若面板仍不可见，请在 OBS 菜单「停靠窗口」里勾选 lyblive 一次"
+            .to_string(),
+    );
     notes.push("现在打开 OBS，右侧应出现 lyblive 面板；可拖左边界调整宽度".to_string());
     Ok(notes.join("\n"))
 }
@@ -230,29 +227,28 @@ mod tests {
     const BASE: &str = "[General]\nFirstRun=true\n\n[BasicWindow]\nDocksLocked=false\nExtraBrowserDocks=[{\"title\": \"old\", \"url\": \"http://x/\", \"uuid\": \"u\"}]\nDockState=AAAA\n\n[Appearance]\nFontScale=10\n";
 
     #[test]
-    fn rewrite_replaces_dock_and_resets_state() {
-        let (out, changed, reset) = rewrite(BASE, 8768);
+    fn rewrite_replaces_dock_and_keeps_state() {
+        let (out, changed) = rewrite(BASE, 8768);
         assert!(changed);
-        assert!(reset);
         assert_eq!(out.matches("ExtraBrowserDocks=").count(), 1);
         assert!(out.contains("127.0.0.1:8768"));
-        assert!(!out.contains("DockState="));
+        // DockState 必须保留，删除它会让 OBS 隐藏 lyblive 面板
+        assert!(out.contains("DockState=AAAA"));
         assert!(out.contains("FontScale=10"));
     }
 
     #[test]
     fn rewrite_is_idempotent() {
-        let (once, _, _) = rewrite(BASE, 8768);
-        let (twice, changed, reset) = rewrite(&once, 8768);
+        let (once, _) = rewrite(BASE, 8768);
+        let (twice, changed) = rewrite(&once, 8768);
         assert_eq!(once, twice);
         assert!(!changed);
-        assert!(!reset);
     }
 
     #[test]
     fn rewrite_inserts_when_missing() {
         let text = "[BasicWindow]\nDocksLocked=false\n";
-        let (out, changed, _) = rewrite(text, 9000);
+        let (out, changed) = rewrite(text, 9000);
         assert!(changed);
         assert_eq!(out.matches("ExtraBrowserDocks=").count(), 1);
         assert!(out.contains("127.0.0.1:9000"));
@@ -261,7 +257,7 @@ mod tests {
     #[test]
     fn rewrite_keeps_single_line_when_duplicated() {
         let dup = format!("{BASE}ExtraBrowserDocks=[{{\"title\": \"dup\"}}]\n");
-        let (out, _, _) = rewrite(&dup, 8768);
+        let (out, _) = rewrite(&dup, 8768);
         assert_eq!(out.matches("ExtraBrowserDocks=").count(), 1);
     }
 

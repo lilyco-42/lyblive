@@ -30,6 +30,7 @@ import {
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { ScaleControl, useUiScale } from "@/components/ScaleControl";
+import { SponsorCard } from "@/components/SponsorCard";
 import { useCommands } from "@/hooks/useCommands";
 import { useConfig } from "@/hooks/useConfig";
 import { SCALE_PRESETS, setScale } from "@/lib/ui-scale";
@@ -265,6 +266,8 @@ export function SettingsPanel() {
           </div>
         </CardContent>
       </Card>
+
+      <SponsorCard />
     </div>
   );
 }

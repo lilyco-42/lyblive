@@ -110,6 +110,8 @@ export interface FaceAuthResponse {
   message: string;
   qrSvg: string;
   notice?: FaceAuthNotice | null;
+  /** notice 各字段的真实类型摘要，拿不到地址时用于定位 */
+  noticeShape?: string | null;
 }
 
 export type StartLiveResult = LiveStartResponse | FaceAuthResponse;

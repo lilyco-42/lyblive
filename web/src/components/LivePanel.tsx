@@ -264,6 +264,9 @@ export function LivePanel() {
             <details className="text-xs text-muted-foreground">
               <summary className="cursor-pointer">B 站返回的说明</summary>
               <p className="mt-1 leading-relaxed">{faceAuth.message}</p>
+              {faceAuth.noticeShape ? (
+                <p className="mt-1 font-mono text-[11px] break-all">notice: {faceAuth.noticeShape}</p>
+              ) : null}
             </details>
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => void handleStart()} disabled={starting}>

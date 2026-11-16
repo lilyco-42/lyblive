@@ -123,6 +123,7 @@ pub fn dispatch(ctx: &CommandContext, name: &str, args: &Value) -> anyhow::Resul
                             "message": face.message,
                             "qrSvg": qr_svg,
                             "notice": notice,
+                            "noticeShape": face.notice_shape,
                         }));
                     }
                     return Err(err);

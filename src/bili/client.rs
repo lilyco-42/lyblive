@@ -430,12 +430,14 @@ impl BiliApi {
 }
 
 /// B 站开播返回 60043 且带可展示的验证入口时抛出。
-/// `qr` 已归一为可直接编码的内容（优先 data.qr，其次 notice.button_url）。
+/// `qr` 已归一为可直接编码的内容（优先 data.qr，其次 notice 里的跳转地址）。
 #[derive(Debug, Clone)]
 pub struct FaceAuthRequired {
     pub message: String,
     pub qr: String,
     pub notice: Option<NoticeInfo>,
+    /// notice 的结构摘要（键=类型），用于在拿不到地址时定位真实字段
+    pub notice_shape: Option<String>,
 }
 
 /// data.notice 里的展示信息：标题、说明、按钮文案与跳转地址。
@@ -464,27 +466,125 @@ impl std::fmt::Display for FaceAuthRequired {
 
 impl std::error::Error for FaceAuthRequired {}
 
+/// 宽容取值：字符串、数字、布尔、数组首元素，或嵌套对象里的 text/url/value/content。
+/// B 站不同版本把这些字段包在不同层级，严格的 `as_str` 会整体漏掉。
+pub fn loose_text(value: Option<&Value>) -> String {
+    match value {
+        Some(Value::String(text)) => text.trim().to_string(),
+        Some(Value::Number(number)) => number.to_string(),
+        Some(Value::Bool(flag)) => flag.to_string(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| loose_text(Some(item)))
+            .find(|text| !text.is_empty())
+            .unwrap_or_default(),
+        Some(Value::Object(map)) => {
+            const INNER: [&str; 8] = [
+                "text", "url", "value", "content", "msg", "title", "link", "str",
+            ];
+            for key in INNER {
+                let text = loose_text(map.get(key));
+                if !text.is_empty() {
+                    return text;
+                }
+            }
+            String::new()
+        }
+        _ => String::new(),
+    }
+}
+
+fn first_text(notice: &serde_json::Map<String, Value>, keys: &[&str]) -> String {
+    for key in keys {
+        let text = loose_text(notice.get(*key));
+        if !text.is_empty() {
+            return text;
+        }
+    }
+    String::new()
+}
+
+fn value_kind(value: Option<&Value>) -> String {
+    match value {
+        None => "missing".into(),
+        Some(Value::Null) => "null".into(),
+        Some(Value::Bool(flag)) => format!("bool({flag})"),
+        Some(Value::Number(number)) => format!("num({number})"),
+        Some(Value::String(text)) => format!("str(len={})", text.chars().count()),
+        Some(Value::Array(items)) => format!("array(len={})", items.len()),
+        Some(Value::Object(map)) => format!(
+            "object[{}]",
+            map.keys().cloned().collect::<Vec<_>>().join("|")
+        ),
+    }
+}
+
 /// 解析 data.notice；B 站的验证入口（实名/人脸/风险校验）通常放在这里。
-pub fn parse_notice(data: &Value) -> Option<NoticeInfo> {
-    let notice = data.get("notice")?.as_object()?;
-    let text = |key: &str| {
-        notice
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .trim()
-            .to_string()
+/// 同时返回结构摘要，便于在字段名或层级变化时快速定位。
+pub fn parse_notice(data: &Value) -> (Option<NoticeInfo>, Option<String>) {
+    let Some(notice) = data.get("notice").and_then(Value::as_object) else {
+        return (None, None);
     };
     let info = NoticeInfo {
-        title: text("title"),
-        msg: text("msg"),
-        button_text: text("button_text"),
-        button_url: text("button_url"),
+        title: first_text(notice, &["title", "header", "name"]),
+        msg: first_text(
+            notice,
+            &["msg", "message", "content", "desc", "description"],
+        ),
+        button_text: first_text(notice, &["button_text", "button", "action_text", "text"]),
+        button_url: first_text(
+            notice,
+            &[
+                "button_url",
+                "url",
+                "link",
+                "jump_url",
+                "action_url",
+                "redirect_url",
+                "qr_url",
+            ],
+        ),
     };
+    let shape = format!(
+        "title={}, msg={}, button_text={}, button_url={}",
+        value_kind(notice.get("title")),
+        value_kind(notice.get("msg")),
+        value_kind(notice.get("button_text")),
+        value_kind(notice.get("button_url"))
+    );
     if info.is_empty() {
+        return (None, Some(shape));
+    }
+    (Some(info), Some(shape))
+}
+
+/// B 站官方人脸验证页（与官方直播姬 / LiveHime 同款）。
+/// 凭证来自 60043 响应里的 `data.risk_extra.v_voucher`；手机端已登录同一账号即可完成核身。
+pub fn face_auth_url(data: &Value) -> Option<String> {
+    let voucher = data
+        .get("risk_extra")
+        .and_then(|extra| extra.get("v_voucher"))
+        .map(|value| loose_text(Some(value)))
+        .unwrap_or_default();
+    if voucher.is_empty() {
         return None;
     }
-    Some(info)
+    Some(format!(
+        "https://live.bilibili.com/p/html/bilili-page-face-auth/index.html?is_live_webview=1&app_common=open&pc_ui=500,428,17181a,2&v_voucher={}",
+        percent_encode(&voucher)
+    ))
+}
+
+fn percent_encode(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 /// 从 60043 的 data 中取认证二维码载荷：`qr` 可能是字符串，也可能是含 url 的对象。
@@ -545,19 +645,22 @@ fn check_response(body: Value) -> Result<Value> {
             "请按下方提示用官方渠道完成；完成后回到这里重新点「开始直播」。",
             "不要反复点击以免触发「开播太频繁」；lyblive 不会索取或保存账号凭据",
         ));
-        let notice = parse_notice(&data);
-        // 优先 data.qr；没有二维码时退回到 notice.button_url（B 站给的验证入口）
-        let qr = extract_qr_payload(&data).or_else(|| {
-            notice
-                .as_ref()
-                .map(|info| info.button_url.clone())
-                .filter(|url| !url.is_empty())
-        });
-        if qr.is_some() || notice.is_some() {
+        let (notice, notice_shape) = parse_notice(&data);
+        // 优先级：data.qr > 官方人脸验证页（risk_extra.v_voucher）> notice 里的跳转地址
+        let qr = extract_qr_payload(&data)
+            .or_else(|| face_auth_url(&data))
+            .or_else(|| {
+                notice
+                    .as_ref()
+                    .map(|info| info.button_url.clone())
+                    .filter(|url| !url.is_empty())
+            });
+        if qr.is_some() || notice.is_some() || notice_shape.is_some() {
             return Err(anyhow!(FaceAuthRequired {
                 message: text,
                 qr: qr.unwrap_or_default(),
                 notice,
+                notice_shape,
             }));
         }
         if let Some(hint) = verification_hint(&data) {
@@ -830,6 +933,79 @@ mod tests {
             referer_for("https://live.bilibili.com/p/html/live-app-face/index.html"),
             "https://live.bilibili.com/"
         );
+    }
+    #[test]
+    fn code_60043_builds_face_auth_url_from_risk_voucher() {
+        let err = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "本次开播需要身份验证",
+            "data": {
+                "need_face_auth": false,
+                "qr": "",
+                "risk_extra": {"v_voucher": "abc123"},
+                "notice": {"title": "", "msg": "", "button_text": "", "button_url": ""}
+            }
+        }))
+        .unwrap_err();
+        let face = err
+            .downcast_ref::<FaceAuthRequired>()
+            .expect("应带人脸验证入口");
+        assert!(face.qr.contains("bilili-page-face-auth"), "{}", face.qr);
+        assert!(face.qr.contains("v_voucher=abc123"), "{}", face.qr);
+    }
+    #[test]
+    fn code_60043_encodes_voucher_special_chars() {
+        let err = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "需要验证",
+            "data": {"risk_extra": {"v_voucher": "a+b/c="}}
+        }))
+        .unwrap_err();
+        let face = err.downcast_ref::<FaceAuthRequired>().unwrap();
+        assert!(face.qr.contains("v_voucher=a%2Bb%2Fc%3D"), "{}", face.qr);
+    }
+    #[test]
+    fn code_60043_notice_nested_values_are_extracted() {
+        // B 站不同版本把文案包在对象里，严格的 as_str 会整体漏掉
+        let err = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "需要验证",
+            "data": {
+                "need_face_auth": false,
+                "qr": "",
+                "notice": {
+                    "title": {"text": "实名认证"},
+                    "msg": {"content": "请先完成实名认证"},
+                    "button_text": {"text": "去认证"},
+                    "button_url": {"url": "https://example.com/verify"}
+                }
+            }
+        }))
+        .unwrap_err();
+        let face = err
+            .downcast_ref::<FaceAuthRequired>()
+            .expect("嵌套 notice 也要结构化");
+        assert_eq!(face.qr, "https://example.com/verify");
+        let notice = face.notice.as_ref().expect("notice");
+        assert_eq!(notice.title, "实名认证");
+        assert_eq!(notice.msg, "请先完成实名认证");
+        assert_eq!(notice.button_text, "去认证");
+    }
+    #[test]
+    fn code_60043_notice_shape_is_reported_when_empty() {
+        let err = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "需要验证",
+            "data": {"notice": {"title": null, "msg": null, "button_url": null}}
+        }))
+        .unwrap_err();
+        let face = err
+            .downcast_ref::<FaceAuthRequired>()
+            .expect("空 notice 也要带回结构");
+        assert!(face.qr.is_empty());
+        let shape = face.notice_shape.as_deref().unwrap_or_default();
+        assert!(shape.contains("title=null"), "{shape}");
+        assert!(shape.contains("button_url=null"), "{shape}");
     }
     #[test]
     fn code_60043_notice_becomes_structured_verification() {

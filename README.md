@@ -199,3 +199,24 @@ curl -sS -H 'Host: 127.0.0.1:8768' http://127.0.0.1:8768/api/health
 若切回纯 Wayland 启动 OBS，dock 可能缺席；这不是 lyblive 后端故障。可用 `xprop -root _NET_CLIENT_LIST` 找到 `WM_CLASS="obs"` 的窗口，再以 `import -display :0 -window <id> obs.png` 取证（XWayland 下抓取 root 常为黑图）。
 
 若目标窗口被最小化/未映射（`xprop -id <id> WM_STATE` 为 `Iconic`、`_NET_WM_STATE` 含 `_NET_WM_STATE_HIDDEN`），ImageMagick 7.1.2-35 的 `import` 会误报 `missing an image filename`：该报错来自 `MagickWand/import.c:1291` 的 `image == NULL` 分支，并非缺少输出文件名。先用 `XMapRaised`/`XMapWindow`（例如 Python ctypes 调 `libX11.so.6`）重新映射窗口，确认 `WM_STATE=Normal` 后再抓图即可；`XSetInputFocus` 失败不影响已完成的映射。
+
+## 开播验证（60043）
+
+B 站要求开播前验证时，`lyblive` 会读取 60043 响应里的 `risk_extra.v_voucher`，拼出官方人脸验证页
+（`live.bilibili.com/p/html/bilili-page-face-auth/...`）并**渲染成二维码**；手机 B 站 App 扫码即可完成核身，
+完成后回到面板点「已完成验证，重试开播」。若这次响应里没有 `v_voucher`，且 `qr` 与 `notice.button_url` 也为空，
+卡片会明确显示「B 站没有下发二维码」并透出 `notice` 的真实字段类型，便于定位。
+
+## 商业化与赞助
+
+- **关于 / 赞助**：设置页「赞助与广告」卡片，微信 `lilyco42` / QQ `1957374829` / B 站「云枢智创（uid 603079076）」；
+  两张二维码 PNG 放在 `web/public/assets/sponsor/`，随前端一起打包，由后端同源提供（`/assets/sponsor/*`），
+  不为任何外域开 `img-src`。
+- **名利选其一**：赞助者可在「署名（fame）」与「商用权益（profit）」中二选一，作者按选择登记。
+- **广告位**：面板里只有虚线占位框（`ad-about` slot），**不加载任何远端脚本 / iframe**，也不接受远端内容注入；
+  赞助后可自行替换为你自己的推广文字。
+- **许可**：详见 `LICENSE`（MIT）。源码可见、个人自由使用与修改；禁止二次贩卖 / 转售；
+  商用（含付费或赞助后的商业使用）须获得作者 lilyco 授权。
+
+口径与 `kuake-studio` 保持一致：只内嵌静态资源，不引入远端广告 SDK，也不把联系方式、
+收款码与授权状态做成可被远端覆盖的字段。
