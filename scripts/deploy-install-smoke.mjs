@@ -5,8 +5,8 @@
 // Windows CI without symlink privilege falls back to hard links for write-through checks.
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, existsSync, rmSync, symlinkSync, linkSync, lstatSync, readdirSync, statSync, chmodSync, readlinkSync } from 'node:fs'
 import { Buffer } from 'node:buffer'
-import { tmpdir } from 'node:os'
-import { join, resolve, dirname, basename, isAbsolute } from 'node:path'
+import { tmpdir, homedir } from 'node:os'
+import { join, resolve, dirname, basename, isAbsolute, relative, parse } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
@@ -73,7 +73,18 @@ function hasBareLf(text) {
   return text.replaceAll(String.fromCharCode(13) + NL, '').includes(NL)
 }
 
-const temp = mkdtempSync(join(tmpdir(), 'dsh-deploy-smoke-'))
+// Windows 的 TEMP 位于真实用户目录内（C:\Users\<user>\AppData\Local\Temp），而
+// installer 的 --fixture 要求临时 HOME 不在真实 home 内，因此这种情况改到系统盘根。
+function smokeTempRoot() {
+  const base = tmpdir()
+  if (process.platform === 'win32') {
+    const rel = relative(homedir(), base)
+    const inside = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+    if (inside) return parse(homedir()).root
+  }
+  return base
+}
+const temp = mkdtempSync(join(smokeTempRoot(), 'dsh-deploy-smoke-'))
 const obsSimDir = join(temp, "obs-detect-sim")
 mkdirSync(obsSimDir, { recursive: true })
 writeFileSync(join(obsSimDir, "sitecustomize.py"), [
