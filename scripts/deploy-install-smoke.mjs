@@ -950,7 +950,9 @@ try {
     ""
   ].join(NL))
   const timeoutEnv = { ...sysEnv, PYTHONPATH: timeoutDir }
-  expectUnreachable(timeoutEnv, "hung systemd user manager")
+  // 只有 Linux 才有 systemctl；其他平台的 preflight 在 which 阶段就判定 UNREACHABLE，
+  // 不会执行 show-environment 探针，超时注入无从触发。
+  if (process.platform === "linux") expectUnreachable(timeoutEnv, "hung systemd user manager")
   expectUnreachable(noToolsEnv, "missing systemd tools")
   const probeEnv = { ...sysEnv }
   const reachable = spawnSync("systemctl", ["--user", "show-environment"], { encoding: "utf8", env: probeEnv })

@@ -251,7 +251,7 @@ if (requireDeploy && !allArtifacts) {
   must(webUnit.includes('Environment=HOME=%h') && webUnit.includes('ExecStart=%h/.local/bin/lyblive --web --no-browser') && webUnit.includes('WantedBy=default.target'), 'portable Web unit drift')
   must(obsUnit.includes('ExecStart=%h/.local/bin/lyblive-obs') && obsUnit.includes('PartOf=graphical-session.target') && obsUnit.includes('After=graphical-session.target') && obsUnit.includes('WantedBy=graphical-session.target'), 'portable OBS unit drift')
   must(launcher.includes('-u WAYLAND_DISPLAY') && launcher.includes('-u SESSION_MANAGER') && launcher.includes('-u DESKTOP_STARTUP_ID') && launcher.includes('-u XDG_ACTIVATION_TOKEN') && launcher.includes('QT_QPA_PLATFORM=xcb') && launcher.includes('XDG_SESSION_TYPE=x11'), 'portable OBS launcher drift')
-  const installer = readFileSync(join(deployDir, 'install.py'), 'utf8')
+  const installer = readFileSync(join(deployDir, 'install.py'), 'utf8').replace(/\r\n/g, '\n')
   const subprocessLines = installer.split(/\r?\n/).filter((line) => line.includes('subprocess.run('))
   must(subprocessLines.length >= 5 && subprocessLines.every((line) => line.includes('timeout=')), 'portable installer must bound every subprocess.run call')
   must(countIn(installer, 'timeout=OBS_DETECT_TIMEOUT') >= 1, 'portable installer must bound OBS detection explicitly')
