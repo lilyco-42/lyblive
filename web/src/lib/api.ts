@@ -25,6 +25,8 @@ export interface Session {
   user?: SessionUser;
   roomId?: number;
   csrfPresent: boolean;
+  /** 昵称/头像拉取失败的原因；为空表示资料已就绪 */
+  profileError?: string | null;
 }
 
 export interface QrcodeResponse {
@@ -93,6 +95,24 @@ export interface LiveStartResponse {
   ok: true;
   rtmp: RtmpInfo;
 }
+
+/** 开播被 B 站验证拦截：后端把 data.qr（或 notice.button_url）渲染成 SVG 返回 */
+export interface FaceAuthNotice {
+  title: string;
+  msg: string;
+  buttonText: string;
+  buttonUrl: string;
+}
+
+export interface FaceAuthResponse {
+  ok: false;
+  faceAuthRequired: true;
+  message: string;
+  qrSvg: string;
+  notice?: FaceAuthNotice | null;
+}
+
+export type StartLiveResult = LiveStartResponse | FaceAuthResponse;
 
 export interface StreamKeyResponse {
   ok: true;
@@ -259,7 +279,7 @@ export const api = {
 
   // 直播控制
   startLive: (areaId?: number) =>
-    request<LiveStartResponse>("/api/live/start", postJson(areaId === undefined ? {} : { areaId })),
+    request<StartLiveResult>("/api/live/start", postJson(areaId === undefined ? {} : { areaId })),
   stopLive: () => request<OkResponse>("/api/live/stop", postJson({})),
   streamKey: (reveal: boolean) =>
     request<StreamKeyResponse>("/api/stream-key?" + (reveal ? "reveal=1" : "reveal=0")),

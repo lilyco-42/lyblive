@@ -51,6 +51,8 @@ struct Core {
     pending_qr: Option<PendingQr>,
     rtmp: Option<RtmpInfo>,
     wbi: Option<WbiKeys>,
+    profile_error: Option<String>,
+    profile_attempt_at: i64,
 }
 
 #[derive(Clone)]
@@ -76,6 +78,8 @@ impl AppState {
                 pending_qr: None,
                 rtmp: None,
                 wbi: None,
+                profile_error: None,
+                profile_attempt_at: 0,
             })),
         }
     }
@@ -176,21 +180,42 @@ impl AppState {
             },
             "roomId": if s.room_id > 0 { Value::from(s.room_id) } else { Value::Null },
             "csrfPresent": !s.csrf.trim().is_empty(),
+            "profileError": core.profile_error.clone(),
         })
     }
 
-    pub fn enrich_profile(&self) {
+    /// 拉取昵称、头像与等级。失败时把原因留在 `profileError`，供前端提示与重试，
+    /// 而不是静默返回空字符串让用户看到「未知昵称 / 等级 0」。
+    pub fn enrich_profile(&self) -> Option<String> {
         let (cookie, uid, api) = {
             let core = self.inner.read().unwrap();
-            match &core.login {
-                Some(s) => (s.cookie.clone(), s.uid, core.api.clone()),
-                None => return,
-            }
+            let s = core.login.as_ref()?;
+            (s.cookie.clone(), s.uid, core.api.clone())
         };
+        {
+            let mut core = self.inner.write().unwrap();
+            core.profile_attempt_at = now_secs();
+        }
         let nav = match api.nav(&cookie) {
             Ok(v) => v,
-            Err(_) => return,
+            Err(e) => {
+                let msg = format!("昵称/头像拉取失败：{e}（B 站可能要求重新登录或触发了风控）");
+                if let Some(s) = self.inner.write().unwrap().login.as_mut() {
+                    if s.uid == uid {
+                        s.profile = None;
+                    }
+                }
+                self.inner.write().unwrap().profile_error = Some(msg.clone());
+                return Some(msg);
+            }
         };
+        if let Some(is_login) = nav.get("isLogin").and_then(Value::as_bool) {
+            if !is_login {
+                let msg = "昵称/头像拉取失败：B 站返回未登录状态，请重新扫码登录".to_string();
+                self.inner.write().unwrap().profile_error = Some(msg.clone());
+                return Some(msg);
+            }
+        }
         let room_id = i64_val(obj(&nav, "live_room"), "roomid");
         let profile = Profile {
             uid,
@@ -207,6 +232,23 @@ impl AppState {
                 }
                 s.profile = Some(profile);
             }
+        }
+        core.profile_error = None;
+        None
+    }
+
+    /// 会话读取时的惰性补拉：只在缺少资料且距上次尝试超过 30 秒时触发一次，
+    /// 避免 `/api/session` 被前端轮询时反复打 B 站接口。
+    pub fn refresh_profile_if_needed(&self) {
+        let now = now_secs();
+        let need = {
+            let core = self.inner.read().unwrap();
+            core.login.is_some()
+                && core.login.as_ref().is_some_and(|s| s.profile.is_none())
+                && now.saturating_sub(core.profile_attempt_at) >= 30
+        };
+        if need {
+            let _ = self.enrich_profile();
         }
     }
 
@@ -301,8 +343,10 @@ impl AppState {
                 });
                 core.pending_qr = None;
                 core.wbi = None;
+                core.profile_error = None;
+                core.profile_attempt_at = 0;
             }
-            self.enrich_profile();
+            let _ = self.enrich_profile();
             return Ok(
                 json!({"ok": true, "status": status, "message": message, "session": self.public_session()}),
             );
@@ -321,6 +365,8 @@ impl AppState {
             core.pending_qr = None;
             core.wbi = None;
             core.rtmp = None;
+            core.profile_error = None;
+            core.profile_attempt_at = 0;
         }
         self.config().clear_credential()?;
         Ok(())

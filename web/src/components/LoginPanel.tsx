@@ -191,6 +191,16 @@ export function LoginPanel({ session, loading, onRefresh }: LoginPanelProps) {
 
             <Separator />
 
+            {session?.profileError ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+                <p className="text-xs text-destructive">{session.profileError}</p>
+                <Button variant="outline" onClick={() => void onRefresh()}>
+                  <RefreshCw />
+                  重新拉取
+                </Button>
+              </div>
+            ) : null}
+
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
                 为安全起见，前端不展示 cookie、csrf 与任何令牌。

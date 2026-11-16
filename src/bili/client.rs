@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use reqwest::blocking::{Client, Response};
-use reqwest::header::{HeaderMap, HeaderValue, COOKIE, SET_COOKIE};
+use reqwest::header::{HeaderMap, HeaderValue, COOKIE, REFERER, SET_COOKIE};
 use serde_json::Value;
 
 use crate::util::{form_encode, i64_val, mask, md5_hex, now_secs, obj, str_val};
@@ -42,6 +42,17 @@ pub struct HttpTransport {
     client: Client,
 }
 
+/// 按目标域名选择 Referer；B 站风控会校验来源页与域名是否匹配。
+pub fn referer_for(url: &str) -> &'static str {
+    if url.contains("live.bilibili.com") {
+        "https://live.bilibili.com/"
+    } else if url.contains("passport.bilibili.com") {
+        "https://passport.bilibili.com/"
+    } else {
+        "https://www.bilibili.com/"
+    }
+}
+
 impl HttpTransport {
     pub fn new() -> Result<Self> {
         let mut h = HeaderMap::new();
@@ -72,6 +83,8 @@ impl Transport for HttpTransport {
         cookie: Option<&str>,
     ) -> Result<RawResponse> {
         let mut b = self.client.request(method.parse()?, url).query(&query);
+        // 缺少来源页时 nav / live 接口会走风控分支，登录后仍拿不到昵称、头像与等级。
+        b = b.header(REFERER, referer_for(url));
         if let Some(c) = cookie {
             b = b.header(COOKIE, c);
         }
@@ -416,26 +429,228 @@ impl BiliApi {
     }
 }
 
+/// B 站开播返回 60043 且带可展示的验证入口时抛出。
+/// `qr` 已归一为可直接编码的内容（优先 data.qr，其次 notice.button_url）。
+#[derive(Debug, Clone)]
+pub struct FaceAuthRequired {
+    pub message: String,
+    pub qr: String,
+    pub notice: Option<NoticeInfo>,
+}
+
+/// data.notice 里的展示信息：标题、说明、按钮文案与跳转地址。
+#[derive(Debug, Clone, Default)]
+pub struct NoticeInfo {
+    pub title: String,
+    pub msg: String,
+    pub button_text: String,
+    pub button_url: String,
+}
+
+impl NoticeInfo {
+    fn is_empty(&self) -> bool {
+        self.title.is_empty()
+            && self.msg.is_empty()
+            && self.button_text.is_empty()
+            && self.button_url.is_empty()
+    }
+}
+
+impl std::fmt::Display for FaceAuthRequired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for FaceAuthRequired {}
+
+/// 解析 data.notice；B 站的验证入口（实名/人脸/风险校验）通常放在这里。
+pub fn parse_notice(data: &Value) -> Option<NoticeInfo> {
+    let notice = data.get("notice")?.as_object()?;
+    let text = |key: &str| {
+        notice
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    };
+    let info = NoticeInfo {
+        title: text("title"),
+        msg: text("msg"),
+        button_text: text("button_text"),
+        button_url: text("button_url"),
+    };
+    if info.is_empty() {
+        return None;
+    }
+    Some(info)
+}
+
+/// 从 60043 的 data 中取认证二维码载荷：`qr` 可能是字符串，也可能是含 url 的对象。
+pub fn extract_qr_payload(data: &Value) -> Option<String> {
+    const KEYS: [&str; 4] = ["qr", "qr_url", "qrcode", "qr_content"];
+    for key in KEYS {
+        if let Some(value) = data.get(key) {
+            if let Some(text) = qr_value_to_string(value) {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
+
+fn qr_value_to_string(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) if !text.trim().is_empty() => Some(text.clone()),
+        Value::Object(map) => {
+            const INNER: [&str; 6] = ["url", "qr_url", "qrcode", "content", "value", "str"];
+            for key in INNER {
+                if let Some(inner) = map.get(key) {
+                    if let Some(text) = qr_value_to_string(inner) {
+                        return Some(text);
+                    }
+                }
+            }
+            None
+        }
+        // 少数版本把二维码放在数组里（如 [{"url": ...}]）
+        Value::Array(items) => items.iter().find_map(qr_value_to_string),
+        Value::Number(number) => Some(number.to_string()),
+        _ => None,
+    }
+}
+
 fn check_response(body: Value) -> Result<Value> {
     let code = i64_val(&body, "code");
     let data = body.get("data").cloned().unwrap_or(Value::Null);
     if code == 0 {
-        Ok(data)
-    } else {
-        let mut msg = str_val(&body, "message");
-        if msg.is_empty() {
-            msg = str_val(&body, "msg");
-        }
-        Err(anyhow!(
-            "B 站接口返回 code {}{}",
-            code,
-            if msg.is_empty() {
-                String::new()
-            } else {
-                format!(": {msg}")
-            }
-        ))
+        return Ok(data);
     }
+    let mut msg = str_val(&body, "message");
+    if msg.is_empty() {
+        msg = str_val(&body, "msg");
+    }
+    let mut text = format!("B 站接口返回 code {}", code);
+    if !msg.is_empty() {
+        text.push_str(": ");
+        text.push_str(&msg);
+    }
+    // 60043 is a platform-side face-verification gate. lyblive cannot perform
+    // biometric verification; guide the user to the official client without
+    // asking for credentials or changing the local room state automatically.
+    if code == 60043 {
+        text.push_str(concat!(
+            "；B 站要求开播前完成验证（可能是实名/人脸/风险校验）。lyblive 不能代做核身，",
+            "请按下方提示用官方渠道完成；完成后回到这里重新点「开始直播」。",
+            "不要反复点击以免触发「开播太频繁」；lyblive 不会索取或保存账号凭据",
+        ));
+        let notice = parse_notice(&data);
+        // 优先 data.qr；没有二维码时退回到 notice.button_url（B 站给的验证入口）
+        let qr = extract_qr_payload(&data).or_else(|| {
+            notice
+                .as_ref()
+                .map(|info| info.button_url.clone())
+                .filter(|url| !url.is_empty())
+        });
+        if qr.is_some() || notice.is_some() {
+            return Err(anyhow!(FaceAuthRequired {
+                message: text,
+                qr: qr.unwrap_or_default(),
+                notice,
+            }));
+        }
+        if let Some(hint) = verification_hint(&data) {
+            text.push_str("；B 站返回的字段：");
+            text.push_str(&hint);
+        }
+    }
+    Err(anyhow!("{text}"))
+}
+
+/// 60043 的 `data` 结构诊断：逐个字段回报**类型**（敏感字段不报内容），
+/// 并对 qr / notice 等可能的认证入口给出脱敏预览，便于判断二维码从哪来。
+fn verification_hint(data: &Value) -> Option<String> {
+    let map = data.as_object()?;
+    if map.is_empty() {
+        return None;
+    }
+    const SENSITIVE: [&str; 6] = [
+        "live_key",
+        "sub_session_key",
+        "rtmp",
+        "rtmp_backup",
+        "protocols",
+        "protocols_backup",
+    ];
+    const PREVIEW: [&str; 6] = ["qr", "qr_url", "qrcode", "url", "notice", "risk_extra"];
+
+    let mut parts = Vec::with_capacity(map.len());
+    for (key, value) in map {
+        let rendered = if SENSITIVE.contains(&key.as_str()) {
+            shape_only(value)
+        } else if PREVIEW.contains(&key.as_str()) {
+            preview(value)
+        } else {
+            shape_only(value)
+        };
+        parts.push(format!("{key}={rendered}"));
+    }
+    Some(parts.join(", "))
+}
+
+fn shape_only(value: &Value) -> String {
+    match value {
+        Value::Null => "null".into(),
+        Value::Bool(flag) => format!("bool({flag})"),
+        Value::Number(number) => format!("num({number})"),
+        Value::String(text) => format!("str(len={})", text.chars().count()),
+        Value::Array(items) => format!("array(len={})", items.len()),
+        Value::Object(map) => format!(
+            "object[{}]",
+            map.keys().cloned().collect::<Vec<_>>().join("|")
+        ),
+    }
+}
+
+fn preview(value: &Value) -> String {
+    match value {
+        Value::String(text) if !text.trim().is_empty() => {
+            // URL 去掉 query（一次性令牌），其余文本保留前面一段便于识别
+            let cleaned = if text.starts_with("http") {
+                strip_query(text)
+            } else {
+                text.clone()
+            };
+            format!(
+                "str(len={}) \"{}\"",
+                text.chars().count(),
+                truncate_chars(&cleaned, 120)
+            )
+        }
+        Value::Array(items) => {
+            let first = items.first().map(shape_only).unwrap_or_default();
+            format!("array(len={}, first={first})", items.len())
+        }
+        Value::Object(map) => format!(
+            "object[{}]",
+            map.keys().cloned().collect::<Vec<_>>().join("|")
+        ),
+        other => shape_only(other),
+    }
+}
+
+fn strip_query(text: &str) -> String {
+    text.split(['?', '#']).next().unwrap_or(text).to_string()
+}
+
+fn truncate_chars(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(max).collect();
+    out.push('…');
+    out
 }
 
 pub fn value_string(v: &Value) -> String {
@@ -596,6 +811,165 @@ mod tests {
     fn qr_svg_is_standalone() {
         let s = qr_svg("https://example.com/?x=1").unwrap();
         assert!(s.starts_with("<svg") && s.ends_with("</svg>") && s.contains("220"));
+    }
+    #[test]
+    fn referer_tracks_target_host() {
+        assert_eq!(
+            referer_for("https://api.bilibili.com/x/web-interface/nav"),
+            "https://www.bilibili.com/"
+        );
+        assert_eq!(
+            referer_for("https://api.live.bilibili.com/room/v1/Room/get_info"),
+            "https://live.bilibili.com/"
+        );
+        assert_eq!(
+            referer_for("https://passport.bilibili.com/x/passport-login/web/qrcode/generate"),
+            "https://passport.bilibili.com/"
+        );
+        assert_eq!(
+            referer_for("https://live.bilibili.com/p/html/live-app-face/index.html"),
+            "https://live.bilibili.com/"
+        );
+    }
+    #[test]
+    fn code_60043_notice_becomes_structured_verification() {
+        let err = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "本次开播需要身份验证",
+            "data": {
+                "need_face_auth": false,
+                "qr": "",
+                "notice": {
+                    "title": "实名认证",
+                    "msg": "请先完成实名认证后开播",
+                    "button_text": "去认证",
+                    "button_url": "https://example.com/verify?t=1",
+                    "status": 0,
+                    "type": 1
+                }
+            }
+        }))
+        .unwrap_err();
+        let face = err
+            .downcast_ref::<FaceAuthRequired>()
+            .expect("notice 应转成结构化验证");
+        // qr 为空时回退到 notice.button_url，可直接生成二维码
+        assert_eq!(face.qr, "https://example.com/verify?t=1");
+        let notice = face.notice.as_ref().expect("notice 应保留");
+        assert_eq!(notice.title, "实名认证");
+        assert_eq!(notice.msg, "请先完成实名认证后开播");
+        assert_eq!(notice.button_text, "去认证");
+    }
+    #[test]
+    fn code_60043_with_qr_returns_face_auth_error() {
+        let err = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "本次开播需要身份验证",
+            "data": {"need_face_auth": true, "qr": "https://example.com/face?token=abc"}
+        }))
+        .unwrap_err();
+        let face = err
+            .downcast_ref::<FaceAuthRequired>()
+            .expect("带 qr 的 60043 应转为 FaceAuthRequired");
+        assert_eq!(face.qr, "https://example.com/face?token=abc");
+        assert!(face.message.contains("60043"), "{}", face.message);
+    }
+    #[test]
+    fn code_60043_qr_object_payload_is_extracted() {
+        let err = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "需要验证",
+            "data": {"qr": {"url": "https://example.com/qr", "expires": 120}}
+        }))
+        .unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<FaceAuthRequired>()
+                .map(|f| f.qr.as_str()),
+            Some("https://example.com/qr")
+        );
+    }
+    #[test]
+    fn code_60043_without_qr_stays_plain_error() {
+        let err = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "需要验证",
+            "data": {"need_face_auth": true}
+        }))
+        .unwrap_err();
+        assert!(err.downcast_ref::<FaceAuthRequired>().is_none());
+        assert!(
+            err.to_string().contains("need_face_auth=bool(true)"),
+            "{err}"
+        );
+    }
+    #[test]
+    fn code_60043_surfaces_verification_url_from_data() {
+        let e = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "本次开播需要身份验证",
+            "data": {"url": "https://live.bilibili.com/p/html/live-app-face/index.html?token=x"}
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("B 站返回的字段"), "{e}");
+        assert!(e.contains("live-app-face"), "{e}");
+        assert!(!e.contains("token=x"), "令牌值不应被透出：{e}");
+    }
+    #[test]
+    fn code_60043_reports_data_field_names_without_values() {
+        let e = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "需要验证",
+            "data": {"app_id": 1, "verify_type": "face", "secret": "s3cr3t"}
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("verify_type=str(len=4)"), "{e}");
+        assert!(!e.contains("s3cr3t"), "字段值不应被透出：{e}");
+    }
+    #[test]
+    fn code_60043_reports_qr_null_type() {
+        let e = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "需要验证",
+            "data": {"need_face_auth": true, "qr": null, "notice": "请在关播时唤起认证"}
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("qr=null"), "{e}");
+        assert!(e.contains("notice=str(len=9)"), "{e}");
+        assert!(e.contains("请在关播时唤起认"), "{e}");
+    }
+    #[test]
+    fn code_60043_without_data_stays_clean() {
+        let e = check_response(serde_json::json!({"code": 60043, "message": "需要验证"}))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("B 站接口返回 code 60043"), "{e}");
+        assert!(!e.contains("B 站返回的验证信息"), "{e}");
+    }
+    #[test]
+    fn code_60043_message_guides_to_official_verification() {
+        let e = check_response(serde_json::json!({
+            "code": 60043,
+            "message": "本次开播需要身份验证，请在关播时点击开播唤起人脸认证"
+        }))
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("B 站接口返回 code 60043"), "{e}");
+        assert!(e.contains("本次开播需要身份验证"), "{e}");
+        assert!(e.contains("B 站要求开播前完成验证"), "{e}");
+        assert!(e.contains("官方渠道完成"), "{e}");
+        assert!(e.contains("不要反复点击"), "{e}");
+        assert!(e.contains("不会索取或保存账号凭据"), "{e}");
+    }
+    #[test]
+    fn unrelated_api_codes_do_not_claim_face_verification() {
+        let e = check_response(serde_json::json!({"code": -101, "message": "账号未登录"}))
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("code -101: 账号未登录"), "{e}");
+        assert!(!e.contains("人脸认证"), "{e}");
     }
     #[test]
     fn api_errors_never_return_data() {

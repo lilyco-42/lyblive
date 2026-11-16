@@ -43,7 +43,10 @@ pub fn dispatch(ctx: &CommandContext, name: &str, args: &Value) -> anyhow::Resul
         "health" => Ok(
             json!({"ok": true, "name": "lyblive", "version": env!("CARGO_PKG_VERSION"), "backend": "lilyco"}),
         ),
-        "session" => Ok(state.public_session()),
+        "session" => {
+            state.refresh_profile_if_needed();
+            Ok(state.public_session())
+        }
         "login-qrcode" => state.qrcode(),
         "login-poll" => state.poll_qrcode(&text(args, "key")),
         "login-logout" => {
@@ -97,7 +100,34 @@ pub fn dispatch(ctx: &CommandContext, name: &str, args: &Value) -> anyhow::Resul
             }
             let (cookie, _) = state.require_csrf()?;
             let room = state.room_id(None)?;
-            let (addr, code) = api.start_live(&cookie, room, area)?;
+            let (addr, code) = match api.start_live(&cookie, room, area) {
+                Ok(pair) => pair,
+                Err(err) => {
+                    if let Some(face) = err.downcast_ref::<crate::bili::FaceAuthRequired>() {
+                        let qr_svg = if face.qr.is_empty() {
+                            String::new()
+                        } else {
+                            crate::bili::qr_svg(&face.qr).unwrap_or_default()
+                        };
+                        let notice = face.notice.as_ref().map(|info| {
+                            json!({
+                                "title": info.title,
+                                "msg": info.msg,
+                                "buttonText": info.button_text,
+                                "buttonUrl": info.button_url,
+                            })
+                        });
+                        return Ok(json!({
+                            "ok": false,
+                            "faceAuthRequired": true,
+                            "message": face.message,
+                            "qrSvg": qr_svg,
+                            "notice": notice,
+                        }));
+                    }
+                    return Err(err);
+                }
+            };
             state.set_rtmp(addr.clone(), code.clone());
             Ok(
                 json!({"ok": true, "rtmp": {"addr": addr, "code": mask(&code), "provider": "bilibili"}}),

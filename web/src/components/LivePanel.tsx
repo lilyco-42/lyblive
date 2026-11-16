@@ -4,6 +4,7 @@ import {
   Eye,
   EyeOff,
   LoaderCircle,
+  QrCode,
   Radio,
   Square,
   TriangleAlert,
@@ -33,7 +34,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { usePartitions } from "@/hooks/usePartitions";
-import { api, errorMessage } from "@/lib/api";
+import { api, errorMessage, type FaceAuthResponse } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 
 /** 密钥明文展示的秒数，超时自动恢复打码 */
@@ -54,6 +55,7 @@ export function LivePanel() {
     [areas],
   );
   const [areaId, setAreaId] = useState<string>("");
+  const [faceAuth, setFaceAuth] = useState<FaceAuthResponse | null>(null);
 
   const [addr, setAddr] = useState<string>("");
   const [code, setCode] = useState<string>("");
@@ -151,13 +153,35 @@ export function LivePanel() {
     }
   }
 
+  async function handleCopyUrl() {
+    const url = faceAuth?.notice?.buttonUrl ?? "";
+    if (url === "") {
+      toast.error("这次没有可复制的验证链接");
+      return;
+    }
+    const ok = await copyText(url);
+    if (ok) {
+      toast.success("已复制验证链接");
+    } else {
+      toast.error("复制失败");
+    }
+  }
+
   async function handleStart() {
     setStarting(true);
     setError(null);
     try {
       const value = Number(areaId);
       const payload = areaId !== "" && !Number.isNaN(value) ? value : undefined;
-      await api.startLive(payload);
+      const result = await api.startLive(payload);
+      if (result.ok === false) {
+        // B 站要求人脸核身：后端已把 data.qr 渲染成 SVG，这里直接展示
+        setFaceAuth(result);
+        setError(null);
+        toast("B 站要求人脸认证", { description: "用 B 站手机 App 扫下方二维码完成核身" });
+        return;
+      }
+      setFaceAuth(null);
       // 推流地址与密钥始终从 GET /api/stream-key 获取；绝不内联开播响应里的明文密钥
       clearRevealTimer();
       setCode("");
@@ -201,6 +225,58 @@ export function LivePanel() {
       </Alert>
 
       {error !== null ? <ErrorAlert title="直播接口出错" message={error} /> : null}
+
+      {faceAuth !== null ? (
+        <Card className="border-amber-500/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <QrCode className="size-4" />
+              {faceAuth.notice?.title || "需要完成验证"}
+            </CardTitle>
+            <CardDescription>
+              {faceAuth.notice?.msg ||
+                "B 站要求开播前完成验证（实名/人脸/风险校验）。用手机扫下方二维码，或在手机上打开验证链接；完成后回到这里重新点「开始直播」。"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {faceAuth.qrSvg !== "" ? (
+              <div
+                className="mx-auto w-56 rounded-lg bg-white p-2 [&>svg]:h-auto [&>svg]:w-full"
+                // 二维码由后端生成的内联 SVG，不含脚本
+                dangerouslySetInnerHTML={{ __html: faceAuth.qrSvg }}
+              />
+            ) : (
+              <p className="text-xs text-destructive">
+                这次 B 站没有下发二维码，请按下方提示在手机上完成验证。
+              </p>
+            )}
+            {faceAuth.notice?.buttonUrl ? (
+              <div className="space-y-1.5">
+                <p className="text-xs break-all text-muted-foreground select-all">
+                  {faceAuth.notice.buttonUrl}
+                </p>
+                <Button variant="outline" onClick={() => void handleCopyUrl()}>
+                  <Copy />
+                  复制验证链接
+                </Button>
+              </div>
+            ) : null}
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer">B 站返回的说明</summary>
+              <p className="mt-1 leading-relaxed">{faceAuth.message}</p>
+            </details>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => void handleStart()} disabled={starting}>
+                {starting ? <LoaderCircle className="animate-spin" /> : <Radio />}
+                已完成验证，重试开播
+              </Button>
+              <Button variant="outline" onClick={() => setFaceAuth(null)}>
+                关闭
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
