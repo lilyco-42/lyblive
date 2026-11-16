@@ -6,9 +6,10 @@ publish = false
 description = "lyblive B 站直播助手：lilyco 命令面、MCP、TUI 与 shadcn Web 控制台"
 
 [features]
-default = ["tui", "browser"]
+default = ["tui", "browser", "obs"]
 tui = ["lilyco/tui"]
 browser = ["dep:webbrowser"]
+obs = []
 headless = []
 
 [dependencies]

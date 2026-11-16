@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Bot,
+  Info,
   Settings2,
   FileCog,
   FolderOpen,
@@ -8,6 +9,7 @@ import {
   RefreshCw,
   ShieldCheck,
   Terminal,
+  ZoomIn,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -27,8 +29,10 @@ import {
 } from "@/components/ui/table";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorAlert } from "@/components/ErrorAlert";
+import { ScaleControl, useUiScale } from "@/components/ScaleControl";
 import { useCommands } from "@/hooks/useCommands";
 import { useConfig } from "@/hooks/useConfig";
+import { SCALE_PRESETS, setScale } from "@/lib/ui-scale";
 import { errorMessage, type CommandArg } from "@/lib/api";
 
 /** 参数签名：name:type，必填加 * */
@@ -55,6 +59,7 @@ export function SettingsPanel() {
   const { commands, loading: commandsLoading, error: commandsError, refresh: refreshCommands } =
     useCommands();
   const [refreshing, setRefreshing] = useState(false);
+  const scale = useUiScale();
 
   async function handleToggle(next: boolean) {
     try {
@@ -132,6 +137,47 @@ export function SettingsPanel() {
               onCheckedChange={(checked) => void handleToggle(checked)}
             />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ZoomIn className="size-4" />
+            界面缩放
+          </CardTitle>
+          <CardDescription>
+            OBS 停靠窗口太窄、字太小看不清时用它。右上角的 − / + 也能直接调；缩放只放大字号与间距，不会撑出横向滚动。
+            设置保存在本机，重启 OBS 仍然生效。
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {SCALE_PRESETS.map((preset) => (
+              <Button
+                key={preset}
+                size="sm"
+                variant={Math.abs(scale - preset) < 0.001 ? "default" : "outline"}
+                onClick={() => setScale(preset)}
+              >
+                {Math.round(preset * 100)}%
+              </Button>
+            ))}
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">当前 {Math.round(scale * 100)}%</span>
+              <ScaleControl />
+            </div>
+          </div>
+
+          <Alert>
+            <Info />
+            <AlertTitle>找不到「插件设置」是正常的</AlertTitle>
+            <AlertDescription>
+              lyblive 不是 OBS 插件，而是 OBS 的「自定义浏览器停靠窗口」。入口在 OBS 菜单
+              「停靠窗口 → 自定义浏览器停靠窗口」；面板本身就在停靠区（右侧或底部），
+              拖标题栏可移动，拖面板边界可加宽。
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
 

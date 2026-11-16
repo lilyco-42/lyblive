@@ -1,0 +1,22 @@
+[Unit]
+Description=lyblive single-OBS console (OBS X11/XWayland with Custom Browser Dock)
+Documentation=https://github.com/lilyco-42/lyblive
+After=lyblive.service
+After=graphical-session.target
+PartOf=graphical-session.target
+Wants=lyblive.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/code/lyblive
+Environment=HOME=%h
+Environment=QT_QPA_PLATFORM=xcb
+Environment=XDG_SESSION_TYPE=x11
+# systemd --user passes DISPLAY, XAUTHORITY, XDG_RUNTIME_DIR and
+# DBUS_SESSION_BUS_ADDRESS from the user manager automatically.
+ExecStart=%h/.local/bin/lyblive-obs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

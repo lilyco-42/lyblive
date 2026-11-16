@@ -1,0 +1,12 @@
+#!/bin/sh
+# Start one OBS process on the X11/XWayland platform.  Unset the
+# Wayland session-manager/activation variables that otherwise trigger a
+# clean Qt shutdown of an X11 OBS after about ten seconds.
+exec /usr/bin/env \
+  -u WAYLAND_DISPLAY \
+  -u SESSION_MANAGER \
+  -u DESKTOP_STARTUP_ID \
+  -u XDG_ACTIVATION_TOKEN \
+  QT_QPA_PLATFORM=xcb \
+  XDG_SESSION_TYPE=x11 \
+  /usr/bin/obs --multi --disable-updater "$@"

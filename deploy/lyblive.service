@@ -1,0 +1,17 @@
+[Unit]
+Description=lyblive Web backend (lilyco REST/SSE on loopback)
+Documentation=https://github.com/lilyco-42/lyblive
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/code/lyblive
+Environment=HOME=%h
+Environment=LYBLIVE_PORT=8768
+Environment=RUST_LOG=info
+ExecStart=%h/.local/bin/lyblive --web --no-browser
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

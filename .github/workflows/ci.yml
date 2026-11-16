@@ -26,8 +26,19 @@ jobs:
           node-version: '22'
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: CI workflow contract
         run: node scripts/ci-contract.mjs
+      - name: Portable single-OBS deployment contract
+        run: node scripts/ci-contract.mjs --deploy
+      - name: Portable single-OBS installer offline smoke test
+        run: node scripts/deploy-install-smoke.mjs
+      - name: Windows-like hard-link installer smoke (all runners)
+        env:
+          LYBLIVE_SMOKE_FORCE_NO_SYMLINK: '1'
+        run: node scripts/deploy-install-smoke.mjs
       - name: Install web dependencies
         working-directory: web
         run: pnpm install --frozen-lockfile
@@ -94,8 +105,19 @@ jobs:
           node-version: '22'
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: CI workflow contract
         run: node scripts/ci-contract.mjs
+      - name: Portable single-OBS deployment contract
+        run: node scripts/ci-contract.mjs --deploy
+      - name: Portable single-OBS installer offline smoke test
+        run: node scripts/deploy-install-smoke.mjs
+      - name: Windows-like hard-link installer smoke (all runners)
+        env:
+          LYBLIVE_SMOKE_FORCE_NO_SYMLINK: '1'
+        run: node scripts/deploy-install-smoke.mjs
       - name: Install web dependencies
         working-directory: web
         run: pnpm install --frozen-lockfile

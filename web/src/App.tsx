@@ -15,6 +15,7 @@ import { DanmuPanel } from "@/components/DanmuPanel";
 import { LivePanel } from "@/components/LivePanel";
 import { LoginPanel } from "@/components/LoginPanel";
 import { RoomPanel } from "@/components/RoomPanel";
+import { ScaleControl } from "@/components/ScaleControl";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { useHealth } from "@/hooks/useHealth";
 import { useSession } from "@/hooks/useSession";
@@ -33,16 +34,16 @@ function HealthBadge({ ok, text }: { ok: boolean; text: string }) {
     <Badge
       variant="outline"
       className={
-        "h-6 gap-1.5 px-2.5 font-mono text-xs " +
+        "h-6 max-w-full min-w-0 gap-1.5 px-2.5 font-mono text-xs " +
         (ok ? "border-emerald-500/40 text-emerald-500" : "border-destructive/40 text-destructive")
       }
     >
       <span
         className={
-          "size-1.5 rounded-full " + (ok ? "bg-emerald-500" : "bg-destructive")
+          "size-1.5 shrink-0 rounded-full " + (ok ? "bg-emerald-500" : "bg-destructive")
         }
       />
-      {text}
+      <span className="truncate">{text}</span>
     </Badge>
   );
 }
@@ -60,7 +61,7 @@ function App() {
         : "连接中…";
 
   return (
-    <div className="min-h-dvh bg-background text-foreground">
+    <div className="min-h-dvh overflow-x-clip bg-background text-foreground">
       <div className="mx-auto w-full max-w-5xl px-4 pt-8 pb-16 sm:px-6">
         <header className="flex flex-wrap items-center justify-between gap-3 pb-6">
           <div className="flex items-center gap-2.5">
@@ -76,11 +77,14 @@ function App() {
               </p>
             </div>
           </div>
-          <HealthBadge ok={health !== null && health.ok} text={backendText} />
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+            <ScaleControl />
+            <HealthBadge ok={health !== null && health.ok} text={backendText} />
+          </div>
         </header>
 
         <Tabs value={tab} onValueChange={setTab} className="gap-5">
-          <TabsList className="h-9 w-full justify-start gap-1 overflow-x-auto p-1 sm:w-fit">
+          <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit sm:flex-nowrap">
             {TABS.map((item) => {
               const Icon = item.icon;
               return (

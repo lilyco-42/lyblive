@@ -10,3 +10,4 @@
 *.tmp
 /dist/
 /toolchains/
+__pycache__/
