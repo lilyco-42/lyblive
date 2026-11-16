@@ -3,7 +3,7 @@
 // Runs the installer against a temporary HOME in --fixture mode and verifies portability,
 // idempotency, Qt-equivalent dock rendering, port override, mode repair, and all input guards.
 // Windows CI without symlink privilege falls back to hard links for write-through checks.
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, existsSync, rmSync, symlinkSync, linkSync, lstatSync, readdirSync, statSync, chmodSync, readlinkSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, copyFileSync, existsSync, rmSync, symlinkSync, linkSync, lstatSync, readdirSync, statSync, chmodSync, readlinkSync, realpathSync } from 'node:fs'
 import { Buffer } from 'node:buffer'
 import { tmpdir, homedir } from 'node:os'
 import { join, resolve, dirname, basename, isAbsolute, relative, parse } from 'node:path'
@@ -76,13 +76,21 @@ function hasBareLf(text) {
 // Windows 的 TEMP 位于真实用户目录内（C:\Users\<user>\AppData\Local\Temp），而
 // installer 的 --fixture 要求临时 HOME 不在真实 home 内，因此这种情况改到系统盘根。
 function smokeTempRoot() {
-  const base = tmpdir()
-  if (process.platform === 'win32') {
-    const rel = relative(homedir(), base)
-    const inside = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
-    if (inside) return parse(homedir()).root
+  if (process.platform !== 'win32') return tmpdir()
+  // tmpdir() 可能返回 8.3 短名（C:\Users\RUNNER~1\...），homedir() 是长名，
+  // 直接 path.relative 会误判；先各自 realpath 再比较。
+  const canonical = (p) => {
+    try {
+      return realpathSync.native ? realpathSync.native(p) : realpathSync(p)
+    } catch {
+      return p
+    }
   }
-  return base
+  const base = canonical(tmpdir())
+  const home = canonical(homedir())
+  const rel = relative(home, base)
+  const inside = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel)
+  return inside ? parse(home).root : base
 }
 const temp = mkdtempSync(join(smokeTempRoot(), 'dsh-deploy-smoke-'))
 const obsSimDir = join(temp, "obs-detect-sim")
