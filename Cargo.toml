@@ -1,6 +1,6 @@
 [package]
 name = "lyblive"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 publish = false
 description = "lyblive B 站直播助手：lilyco 命令面、MCP、TUI 与 shadcn Web 控制台"
