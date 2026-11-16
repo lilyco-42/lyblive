@@ -198,21 +198,27 @@ if (!allArtifacts) {
   const biliGuidanceSection = biliClientSource.slice(biliBranchAt, biliReturnAt)
   for (const marker of [
     'text.push_str(concat!(',
-    'concat!(',
-    '关播状态且 OBS 未推流',
-    'B 站手机客户端或官方直播姬',
-    '完成人脸验证',
+    'B 站要求开播前完成验证',
     '不要反复点击',
     '不会索取或保存账号凭据',
+    'parse_notice(',
   ]) {
     must(biliGuidanceSection.includes(marker), 'code 60043 guidance drift: ' + marker)
   }
   for (const marker of [
-    'code_60043_adds_official_face_verification_guidance',
+    'code_60043_message_guides_to_official_verification',
     'unrelated_api_codes_do_not_claim_face_verification',
     '!e.contains("人脸认证")',
   ]) {
     must(biliClientSource.includes(marker), 'code 60043 face-verification test drift: ' + marker)
+  }
+  for (const marker of [
+    'pub struct FaceAuthRequired',
+    'pub fn parse_notice',
+    'pub fn extract_qr_payload',
+    'pub fn qr_svg',
+  ]) {
+    must(biliClientSource.includes(marker), 'structured verification entry drift: ' + marker)
   }
 }
 const webSmokePath = findOne(['scripts/web-smoke.mjs', 'web-smoke.mjs'])
