@@ -135,7 +135,15 @@ def within(path: Path, root: Path) -> bool:
         path.resolve().relative_to(root.resolve())
         return True
     except (OSError, ValueError, RuntimeError):
+        pass
+    # Windows CI 的 TEMP 会给出 8.3 短名（RUNNER~1）；resolve() 对不存在的子路径
+    # 不会展开短名，这里再用 normcase + realpath 做一次规范字符串比较。
+    try:
+        child = os.path.normcase(os.path.realpath(str(path)))
+        parent = os.path.normcase(os.path.realpath(str(root)))
+    except (OSError, ValueError, RuntimeError):
         return False
+    return child == parent or child.startswith(parent + os.sep)
 
 if args.fixture:
     if within(REAL_HOME, HOME):
