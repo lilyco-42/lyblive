@@ -129,6 +129,19 @@ if args.no_binary and args.bin:
     parser.error("--no-binary and --bin are mutually exclusive")
 DOCK_INI = user_path(args.dock_ini) if args.dock_ini else OBS_INI
 
+def canonical_path(p: Path) -> str:
+    """规范化路径：对尚不存在的子路径，先解析最近的已存在祖先（展开 Windows 8.3 短名）。"""
+    target = Path(os.path.abspath(str(p)))
+    rest = []
+    probe = target
+    while not probe.exists() and probe.parent != probe:
+        rest.append(probe.name)
+        probe = probe.parent
+    base = os.path.normcase(os.path.realpath(str(probe)))
+    if rest:
+        base = os.path.join(base, *reversed(rest))
+    return os.path.normcase(base)
+
 def within(path: Path, root: Path) -> bool:
     """Resolve symlinks before checking path containment (portable Python >= 3.7)."""
     try:
@@ -136,11 +149,11 @@ def within(path: Path, root: Path) -> bool:
         return True
     except (OSError, ValueError, RuntimeError):
         pass
-    # Windows CI 的 TEMP 会给出 8.3 短名（RUNNER~1）；resolve() 对不存在的子路径
-    # 不会展开短名，这里再用 normcase + realpath 做一次规范字符串比较。
+    # Windows CI 的 TEMP 会给出 8.3 短名（RUNNER~1），而 resolve()/realpath() 对
+    # 尚不存在的子路径不展开短名；先规范化最近已存在祖先再拼回剩余段。
     try:
-        child = os.path.normcase(os.path.realpath(str(path)))
-        parent = os.path.normcase(os.path.realpath(str(root)))
+        child = canonical_path(path)
+        parent = canonical_path(root)
     except (OSError, ValueError, RuntimeError):
         return False
     return child == parent or child.startswith(parent + os.sep)
