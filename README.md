@@ -12,6 +12,54 @@ lyblive 是一个面向 AI 与跨平台的 B 站直播助手原型：用 Rust �
 - 五个 Web 页签：登录、房间、直播、弹幕、设置；设置页展示命令、参数与安全级别。
 - 给 Agent 的 MCP tools/list 与 tools/call：只读命令直接放行，白名单写命令放行，开停播和发弹幕等高危命令默认拒绝。
 
+## 安装
+
+### 一键安装（推荐）
+
+| 平台 | 命令 |
+|---|---|
+| Linux / macOS | `curl -fsSL https://raw.githubusercontent.com/lilyco-42/lyblive/main/install/install.sh \| sh` |
+| Windows（PowerShell） | `irm https://raw.githubusercontent.com/lilyco-42/lyblive/main/install/install.ps1 \| iex` |
+
+脚本会：解析平台 → 下载对应 release 资产 → 比对 `SHA256SUMS` → 安装到 `~/.local/bin/lyblive`（Windows 为 `%LOCALAPPDATA%\lyblive\lyblive.exe`）→ 提示 PATH 与下一步。
+可用 `LYBLIVE_VERSION=v0.1.3` 指定版本，`LYBLIVE_BIN_DIR` 指定目录。
+
+### 手动下载
+
+从 [Releases](https://github.com/lilyco-42/lyblive/releases/latest) 取：
+
+| 平台 | 资产 |
+|---|---|
+| Linux x86_64 | `lyblive-linux-x86_64` |
+| Windows x86_64 | `lyblive-windows-x86_64.exe` |
+| macOS arm64 | `lyblive-macos`（Intel Mac 暂无预编译包，需源码构建或 Rosetta） |
+| Android（Termux） | `lyblive-android-aarch64` / `lyblive-android-x86_64` |
+
+二进制未签名，请用同页 `SHA256SUMS` 校验：`sha256sum -c SHA256SUMS`。
+
+### 手机 / 平板（iOS、鸿蒙、Android）
+
+移动端**不安装二进制**：在电脑上跑 `lyblive --web`，手机经 USB 端口转发后用浏览器访问同一地址即可。
+
+~~~bash
+# Android（已装 adb）
+adb reverse tcp:8765 tcp:8765
+# iOS（已装 libimobiledevice）
+iproxy 8765 8765
+# 鸿蒙（已装 hdc）
+hdc rport tcp:8765 tcp:8765
+~~~
+
+之后手机浏览器打开 `http://127.0.0.1:8765/`。端口转发只走 USB 通道，**不需要开放局域网端口**，也不会改变后端只监听 `127.0.0.1` 的安全策略。
+
+### 首次使用
+
+1. 启动 Web：`lyblive --web`，浏览器打开 `http://127.0.0.1:8765/`。
+2. 「登录」页扫码登录 B 站（凭据默认只在内存，可选「记住登录」写盘 0600）。
+3. 「房间」页改标题 / 分区 / 公告；「直播」页开播、停播、看推流地址与密钥（默认打码）。
+4. 想在 OBS 里用：退出 OBS 后执行 `lyblive --obs-install`，重开 OBS 即出现 lyblive 面板。
+5. 开播被 `60043` 拦截时，面板会用 `risk_extra.v_voucher` 生成官方人脸验证页二维码，手机 B 站 App 扫码即可完成。
+
 ## 快速开始
 
 前提：Rust 1.99+，Node.js 22+，pnpm 12+。Linux 本机已用 pnpm 12.19.0、Vite 8.3.7 验证。

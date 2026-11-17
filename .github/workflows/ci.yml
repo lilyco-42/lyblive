@@ -188,10 +188,17 @@ jobs:
           pick lyblive-android-arm64 lyblive-android-aarch64 lyblive
           pick lyblive-android-x86_64 lyblive-android-x86_64 lyblive
           chmod +x release/lyblive-linux-x86_64 release/lyblive-macos release/lyblive-android-aarch64 release/lyblive-android-x86_64
+          cp install/install.sh release/install.sh
+          cp install/install.ps1 release/install.ps1
+          chmod +x release/install.sh
           cd release
           sha256sum lyblive-* > SHA256SUMS
           sha256sum -c SHA256SUMS
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: 'gh release create --repo "$GITHUB_REPOSITORY" "${GITHUB_REF_NAME}" --title "lyblive ${GITHUB_REF_NAME}" --notes "Automated release - Linux x86_64, Windows x86_64, macOS runner-native, Android arm64/x86_64. Binaries are unsigned; verify SHA256SUMS." release/*'
+        run: |
+          gh release create --repo "$GITHUB_REPOSITORY" "${GITHUB_REF_NAME}" \
+            --title "lyblive ${GITHUB_REF_NAME}" \
+            --notes-file install/RELEASE_NOTES.md \
+            release/*
