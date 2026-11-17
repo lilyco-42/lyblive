@@ -245,7 +245,7 @@ export function LoginPanel({ session, loading, onRefresh }: LoginPanelProps) {
               <div className="flex justify-center">
                 {/* qrSvg 是后端返回的完整 <svg> 字符串 */}
                 <div
-                  className="size-[220px] [&>svg]:size-full"
+                  className="w-full max-w-[340px] aspect-square [&>svg]:size-full"
                   dangerouslySetInnerHTML={{ __html: qr.qrSvg }}
                 />
               </div>

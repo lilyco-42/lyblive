@@ -11,6 +11,7 @@ lyblive 是一个面向 AI 与跨平台的 B 站直播助手原型：用 Rust �
 - 弹幕 WebSocket 监听、zlib/brotli 解码、心跳与重连、300 条上限统计、关键词 Top10，以及供 Web 消费的 SSE 事件流。
 - 五个 Web 页签：登录、房间、直播、弹幕、设置；设置页展示命令、参数与安全级别。
 - 给 Agent 的 MCP tools/list 与 tools/call：只读命令直接放行，白名单写命令放行，开停播和发弹幕等高危命令默认拒绝。
+- **弹幕漂浮浮层**：`/overlay` 独立透明页面，`scroll` 飘屏 / `lyrics` 歌词两种模式，可直接作为 OBS「浏览器源」叠加到直播画面上；参数在「设置 → 弹幕漂浮」里调，也支持 URL query 覆盖。
 
 ## 安装
 
@@ -268,3 +269,55 @@ B 站要求开播前验证时，`lyblive` 会读取 60043 响应里的 `risk_ext
 
 口径与 `kuake-studio` 保持一致：只内嵌静态资源，不引入远端广告 SDK，也不把联系方式、
 收款码与授权状态做成可被远端覆盖的字段。
+
+## OBS 集成（Windows / Linux / macOS）
+
+lyblive 不是 OBS 插件，而是 OBS 内置的**自定义浏览器停靠窗口**（CEF webview），零依赖、跨平台。命令：
+
+| 命令 | 作用 |
+| --- | --- |
+| `lyblive --obs-install` | 写入 `ExtraBrowserDocks`（幂等、自动备份，OBS 运行中会拒绝） |
+| `lyblive --obs-fix-dock` | 把面板改成浮动态 `1100×1560`（停靠态会被 Qt 压回 80px 宽） |
+| `lyblive --obs-status` | 查看配置文件路径、是否已配置、OBS 是否在运行 |
+| `lyblive --obs-uninstall` | 移除配置 |
+
+配置位置是平台相关的（`lyblive --obs-status` 会打印实际路径）：
+
+- **Windows**：`%APPDATA%\obs-studio\user.ini`（进程名 `obs64.exe`）
+- **Linux / macOS**：`$XDG_CONFIG_HOME/obs-studio/user.ini`（默认 `~/.config`）
+
+推荐流程：**完全退出 OBS → `lyblive --obs-install` → `lyblive --obs-fix-dock` → 打开 OBS**。
+面板出现后可直接扫 B 站登录二维码；开播遇 60043 会在面板里给官方人脸验证二维码。
+
+平台注意：
+
+- **Linux（XWayland）**：CEF 的 GPU 进程在本机 AMD 环境会 FATAL 崩溃（表现为打开就闪退），需用软件 GL 启动，例如
+  `LIBGL_ALWAYS_SOFTWARE=1 QT_QPA_PLATFORM=xcb obs`；仓库的 `deploy/lyblive-obs` 启动器已内置这条链。
+- **Windows**：无需软件 GL，从开始菜单正常启动 OBS 即可。
+- **macOS**：同样支持 browser dock；若面板不可见，用 OBS 菜单「停靠窗口」勾选一次。
+
+## 弹幕漂浮（/overlay）
+
+- **入口**：`设置 → 弹幕漂浮`（模式 / 字号 / 速度 / 轨道 / 透明度 / 描边 / 颜色 / 类型筛选），带实时预览与「OBS 浏览器源地址」。
+- **独立页面**：`/overlay`，背景透明、无交互。放进 OBS：来源 → ＋ →「浏览器」→ 粘贴地址 → 宽高设为画布尺寸。
+- **两种模式**：`scroll` 从右向左匀速飘过（经典弹幕）；`lyrics` 居中偏下停留淡出（对齐 lyco_music 桌面歌词的视觉）。
+- **URL 覆盖**：OBS 的 CEF 与普通浏览器不共享 localStorage，所以参数可以钉在 URL 上：
+
+  ```
+  /overlay?mode=lyrics&fontSize=36&speed=8&lanes=5&opacity=0.9&color=%23ffcc00&showEnter=1
+  ```
+
+- **没开播也能预览**：加 `&demo=1` 使用内置样例弹幕（每 0.9s 一条），适合调字号与动效。
+- **数据来源**：与「弹幕」页共用同一个 SSE（`/api/danmu/events`），只在弹幕监听开启时有数据。
+
+## 前端模块化
+
+`web/src/modules/` 是"一个完整功能"的落点，与 `components/`（页面拼装）分开。模块自带配置、数据流、视图与设置 UI，通过 `index.ts` 暴露：
+
+```ts
+import { OverlaySettingsCard, OverlayView } from "@/modules/danmu-overlay";
+```
+
+约定（详见 `web/src/modules/README.md`）：配置纯函数化（可 Node 单测）、数据流与视图分离、设置卡跟着模块走、需要独立打开的能力提供 `XxxView` 并在 `main.tsx` 按 pathname 分流、只用同源资源、支持 URL query 覆盖。
+
+已落地模块：`danmu-overlay`（弹幕漂浮）。纯函数测试：`node scripts/overlay-config.test.mjs`（7 项）。

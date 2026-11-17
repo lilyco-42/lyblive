@@ -31,6 +31,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { ScaleControl, useUiScale } from "@/components/ScaleControl";
 import { SponsorCard } from "@/components/SponsorCard";
+import { OverlaySettingsCard } from "@/modules/danmu-overlay";
 import { useCommands } from "@/hooks/useCommands";
 import { useConfig } from "@/hooks/useConfig";
 import { SCALE_PRESETS, setScale } from "@/lib/ui-scale";
@@ -214,13 +215,14 @@ export function SettingsPanel() {
               description="检查后端是否注册了命令注册表。"
             />
           ) : (
-            <Table>
+            <div className="overflow-x-auto">
+              <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-40">命令</TableHead>
                   <TableHead className="w-24">安全等级</TableHead>
                   <TableHead>说明</TableHead>
-                  <TableHead className="w-64">参数</TableHead>
+                  <TableHead className="hidden w-64 sm:table-cell">参数</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -231,7 +233,7 @@ export function SettingsPanel() {
                     </TableCell>
                     <TableCell>{safetyBadge(command.safety)}</TableCell>
                     <TableCell className="text-muted-foreground">{command.about}</TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       {command.args.length === 0 ? (
                         <span className="text-xs text-muted-foreground">无参数</span>
                       ) : (
@@ -251,6 +253,7 @@ export function SettingsPanel() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
 
           <div className="flex justify-end">
@@ -266,6 +269,8 @@ export function SettingsPanel() {
           </div>
         </CardContent>
       </Card>
+
+      <OverlaySettingsCard />
 
       <SponsorCard />
     </div>

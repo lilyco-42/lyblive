@@ -37,16 +37,63 @@ pub fn dock_line(port: u16) -> String {
     )
 }
 
-pub fn config_file() -> PathBuf {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
-        .unwrap_or_else(|| PathBuf::from(".config"));
-    base.join("obs-studio").join("user.ini")
+/// OBS 的配置根目录是平台相关的：Windows 在 `%APPDATA%`，Linux/macOS 在
+/// `$XDG_CONFIG_HOME`（或 `~/.config`）。抽成纯函数便于三平台单测。
+pub fn config_root_from(
+    appdata: Option<&str>,
+    xdg_config_home: Option<&str>,
+    home: Option<&str>,
+    windows: bool,
+) -> PathBuf {
+    if windows {
+        if let Some(appdata) = appdata.filter(|value| !value.is_empty()) {
+            return PathBuf::from(appdata);
+        }
+    }
+    if let Some(xdg) = xdg_config_home.filter(|value| !value.is_empty()) {
+        return PathBuf::from(xdg);
+    }
+    match home.filter(|value| !value.is_empty()) {
+        Some(home) => PathBuf::from(home).join(".config"),
+        None => PathBuf::from(".config"),
+    }
 }
 
-/// 扫描 /proc 判断 OBS 是否在运行（OBS 退出时会覆写 user.ini，必须先关）。
+pub fn config_file() -> PathBuf {
+    let appdata = std::env::var("APPDATA").ok();
+    let xdg = std::env::var("XDG_CONFIG_HOME").ok();
+    let home = std::env::var("HOME").ok();
+    config_root_from(
+        appdata.as_deref(),
+        xdg.as_deref(),
+        home.as_deref(),
+        cfg!(windows),
+    )
+    .join("obs-studio")
+    .join("user.ini")
+}
+
+/// 判断 OBS 是否在运行（OBS 退出时会覆写 user.ini，必须先关）。
+/// Linux/macOS 扫 /proc；Windows 查 tasklist（进程名 obs64.exe / obs.exe）。
 pub fn obs_running() -> bool {
+    obs_running_probe(cfg!(windows))
+}
+
+fn obs_running_probe(windows: bool) -> bool {
+    if windows {
+        for image in ["obs64.exe", "obs.exe"] {
+            let output = std::process::Command::new("tasklist")
+                .args(["/FI", &format!("IMAGENAME eq {image}"), "/NH"])
+                .output();
+            if let Ok(output) = output {
+                if String::from_utf8_lossy(&output.stdout).contains(image) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     let Ok(entries) = fs::read_dir("/proc") else {
         return false;
     };
@@ -210,6 +257,133 @@ pub fn run_install(port: u16) -> Result<()> {
     Ok(())
 }
 
+/* ---------------- DockState 修复（浮动态才保留宽高） ---------------- */
+
+/// 浮动态（与 OBS 的 statsDock 相同 flag），宽高才会被 Qt 保留。
+const FLOAT_FLAG: u8 = 2;
+const FLOAT_RECT: (i32, i32, i32, i32) = (1700, 100, 1100, 1560);
+const DOCK_OBJECT_NAME: &str = "lyblive_extraBrowser";
+
+fn utf16be(text: &str) -> Vec<u8> {
+    text.encode_utf16()
+        .flat_map(|unit| unit.to_be_bytes())
+        .collect()
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack.windows(needle.len()).position(|win| win == needle)
+}
+
+fn read_rect(buf: &[u8], offset: usize) -> Option<(i32, i32, i32, i32)> {
+    let slice = buf.get(offset..offset + 16)?;
+    let mut rect = [0i32; 4];
+    for (index, slot) in rect.iter_mut().enumerate() {
+        let start = index * 4;
+        *slot = i32::from_be_bytes([
+            slice[start],
+            slice[start + 1],
+            slice[start + 2],
+            slice[start + 3],
+        ]);
+    }
+    Some((rect[0], rect[1], rect[2], rect[3]))
+}
+
+fn encode_rect(rect: (i32, i32, i32, i32)) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    for (index, value) in [rect.0, rect.1, rect.2, rect.3].iter().enumerate() {
+        out[index * 4..index * 4 + 4].copy_from_slice(&value.to_be_bytes());
+    }
+    out
+}
+
+/// 纯函数：把 user.ini 文本里 lyblive 的 dock 记录改成浮动态。
+/// 返回 (新文本, 是否有改动)。DockState 缺失或没有 lyblive 记录时原样返回。
+pub fn rewrite_dock_state(text: &str) -> Result<(String, bool)> {
+    use base64::Engine;
+
+    let engine = base64::engine::general_purpose::STANDARD;
+    let Some(state) = text
+        .lines()
+        .find_map(|line| line.strip_prefix("DockState="))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok((text.to_string(), false));
+    };
+
+    let mut raw = engine
+        .decode(state)
+        .context("DockState 不是合法 base64，无法修复")?;
+    let name = utf16be(DOCK_OBJECT_NAME);
+    let Some(position) = find_subslice(&raw, &name) else {
+        return Ok((text.to_string(), false));
+    };
+    let cursor = position + name.len();
+    let Some(old_rect) = read_rect(&raw, cursor + 1) else {
+        anyhow::bail!("DockState 结构异常：lyblive 记录不完整");
+    };
+    let old_flag = raw[cursor];
+    if old_flag == FLOAT_FLAG && old_rect == FLOAT_RECT {
+        return Ok((text.to_string(), false));
+    }
+
+    raw[cursor] = FLOAT_FLAG;
+    raw[cursor + 1..cursor + 17].copy_from_slice(&encode_rect(FLOAT_RECT));
+
+    let new_state = engine.encode(&raw);
+    let mut out: Vec<String> = Vec::new();
+    let mut replaced = false;
+    for line in text.lines() {
+        if !replaced && line.starts_with("DockState=") {
+            out.push(format!("DockState={new_state}"));
+            replaced = true;
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    Ok((out.join("\n") + "\n", true))
+}
+
+/// 让 OBS 下次启动时把 lyblive 面板以 360×760 浮动态显示。
+/// 必须在 OBS 退出时执行：运行中的 OBS 会在退出时回写 DockState 覆盖本次修改。
+pub fn fix_dock() -> Result<String> {
+    if obs_running() {
+        anyhow::bail!("OBS 正在运行：请先完全退出（退出时回写会覆盖本次修复）");
+    }
+    let path = config_file();
+    let text = fs::read_to_string(&path)
+        .with_context(|| format!("读取 {} 失败：请先启动一次 OBS 生成配置", path.display()))?;
+    let (new_text, changed) = rewrite_dock_state(&text)?;
+    if !changed {
+        return Ok(format!(
+            "DockState 无需修复（已是浮动 {:?} 或没有 lyblive 记录）：{}",
+            FLOAT_RECT,
+            path.display()
+        ));
+    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let backup = path.with_file_name(format!("user.ini.bak-dockfix-cli-{stamp}"));
+    fs::copy(&path, &backup).with_context(|| format!("备份 {} 失败", path.display()))?;
+    fs::write(&path, new_text).with_context(|| format!("写入 {} 失败", path.display()))?;
+    Ok(format!(
+        "已把 lyblive 面板改为浮动 {:?}\n备份：{}",
+        FLOAT_RECT,
+        backup.display()
+    ))
+}
+
+pub fn run_fix_dock() -> Result<()> {
+    println!("{}", fix_dock()?);
+    Ok(())
+}
+
 pub fn run_status() -> Result<()> {
     println!("{}", report(&status()));
     Ok(())
@@ -259,6 +433,120 @@ mod tests {
         let dup = format!("{BASE}ExtraBrowserDocks=[{{\"title\": \"dup\"}}]\n");
         let (out, _) = rewrite(&dup, 8768);
         assert_eq!(out.matches("ExtraBrowserDocks=").count(), 1);
+    }
+
+    #[test]
+    fn rewrite_dock_state_flips_to_float() {
+        use base64::Engine;
+        let engine = base64::engine::general_purpose::STANDARD;
+        let name = utf16be(DOCK_OBJECT_NAME);
+        let mut raw: Vec<u8> = vec![0x00, 0x00, 0x00, 0xfd, 0x00, 0x00, 0x00, 0x03];
+        raw.extend_from_slice(&name);
+        raw.push(1); // 停靠态：宽高会被 Qt 压回 80px
+        raw.extend_from_slice(&encode_rect((27, 781, 80, 16777215)));
+        let text = format!(
+            "[BasicWindow]\nDockState={}\n[Appearance]\nFontScale=10\n",
+            engine.encode(&raw)
+        );
+
+        let (out, changed) = rewrite_dock_state(&text).expect("应能修复");
+        assert!(changed);
+        let state = out
+            .lines()
+            .find_map(|line| line.strip_prefix("DockState="))
+            .expect("DockState 仍在");
+        let decoded = engine.decode(state).expect("输出仍是合法 base64");
+        let position = find_subslice(&decoded, &name).expect("记录仍在");
+        let cursor = position + name.len();
+        assert_eq!(decoded[cursor], FLOAT_FLAG, "应改成浮动态");
+        assert_eq!(read_rect(&decoded, cursor + 1), Some(FLOAT_RECT));
+        assert!(out.contains("FontScale=10"), "其它配置不能被改写");
+    }
+
+    #[test]
+    fn rewrite_dock_state_is_idempotent() {
+        use base64::Engine;
+        let engine = base64::engine::general_purpose::STANDARD;
+        let name = utf16be(DOCK_OBJECT_NAME);
+        let mut raw: Vec<u8> = vec![0, 0, 0, 0xfd];
+        raw.extend_from_slice(&name);
+        raw.push(FLOAT_FLAG);
+        raw.extend_from_slice(&encode_rect(FLOAT_RECT));
+        let text = format!("[BasicWindow]\nDockState={}\n", engine.encode(&raw));
+
+        let (out, changed) = rewrite_dock_state(&text).expect("应能解析");
+        assert!(!changed, "已是目标形态时不应改动");
+        assert_eq!(out, text);
+    }
+
+    #[test]
+    fn rewrite_dock_state_without_lyblive_is_noop() {
+        let text = "[BasicWindow]\nDockState=AAAA\n";
+        let (out, changed) = rewrite_dock_state(text).expect("坏 base64 不 panic");
+        assert!(!changed);
+        assert_eq!(out, text);
+    }
+
+    #[test]
+    fn rewrite_dock_state_without_state_is_noop() {
+        let text = "[BasicWindow]\nDocksLocked=false\n";
+        let (out, changed) = rewrite_dock_state(text).expect("无 state 不报错");
+        assert!(!changed);
+        assert_eq!(out, text);
+    }
+
+    #[test]
+    fn config_root_prefers_appdata_on_windows() {
+        let root = config_root_from(
+            Some(r"C:\Users\me\AppData\Roaming"),
+            None,
+            Some(r"C:\Users\me"),
+            true,
+        );
+        assert_eq!(root, PathBuf::from(r"C:\Users\me\AppData\Roaming"));
+        assert!(root
+            .join("obs-studio")
+            .join("user.ini")
+            .to_string_lossy()
+            .contains("AppData"));
+    }
+
+    #[test]
+    fn config_root_uses_xdg_on_unix() {
+        let root = config_root_from(
+            Some("/ignored/appdata"),
+            Some("/home/me/.config"),
+            Some("/home/me"),
+            false,
+        );
+        assert_eq!(root, PathBuf::from("/home/me/.config"));
+    }
+
+    #[test]
+    fn config_root_falls_back_to_home_dot_config() {
+        assert_eq!(
+            config_root_from(None, None, Some("/home/me"), false),
+            PathBuf::from("/home/me/.config")
+        );
+        assert_eq!(
+            config_root_from(None, None, Some("/home/me"), true),
+            PathBuf::from("/home/me/.config"),
+            "Windows 上没有 APPDATA 时也要回落到 .config，而不是 panic"
+        );
+    }
+
+    #[test]
+    fn config_root_ignores_empty_env_values() {
+        assert_eq!(
+            config_root_from(Some(""), Some(""), None, false),
+            PathBuf::from(".config")
+        );
+    }
+
+    #[test]
+    fn config_file_targets_obs_user_ini() {
+        let normalized = config_file().to_string_lossy().replace('\\', "/");
+        assert!(normalized.ends_with("obs-studio/user.ini"), "{normalized}");
     }
 
     #[test]

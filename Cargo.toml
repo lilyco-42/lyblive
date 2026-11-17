@@ -1,6 +1,6 @@
 [package]
 name = "lyblive"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2021"
 publish = false
 description = "lyblive B 站直播助手：lilyco 命令面、MCP、TUI 与 shadcn Web 控制台"
@@ -13,6 +13,7 @@ obs = []
 headless = []
 
 [dependencies]
+base64 = "0.22"
 lilyco = { git = "https://github.com/lilyco-42/lilyco", tag = "v0.3.2", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

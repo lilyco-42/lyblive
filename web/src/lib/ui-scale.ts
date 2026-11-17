@@ -9,11 +9,11 @@ const STORAGE_KEY = "lyblive.uiScale";
 const BASE_FONT_PX = 16;
 
 /** 允许范围：75% ~ 250%，覆盖小 dock 与大屏两种极端 */
-export const MIN_SCALE = 0.75;
-export const MAX_SCALE = 2.5;
+export const MIN_SCALE = 0.5;
+export const MAX_SCALE = 4;
 
 /** 设置页的预设档位 */
-export const SCALE_PRESETS = [0.9, 1, 1.15, 1.3, 1.5, 1.75, 2];
+export const SCALE_PRESETS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3, 4];
 
 export function clampScale(value: number): number {
   if (!Number.isFinite(value)) {

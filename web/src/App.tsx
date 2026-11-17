@@ -84,7 +84,7 @@ function App() {
         </header>
 
         <Tabs value={tab} onValueChange={setTab} className="gap-5">
-          <TabsList className="h-auto w-full flex-wrap justify-start gap-1 p-1 sm:w-fit sm:flex-nowrap">
+          <TabsList className="h-auto min-h-9 w-full flex-wrap justify-start gap-1 p-1 sm:w-fit sm:flex-nowrap [&>[role=tab]]:h-9">
             {TABS.map((item) => {
               const Icon = item.icon;
               return (
