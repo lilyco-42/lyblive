@@ -49,4 +49,8 @@ hdc rport tcp:8765 tcp:8765       # 鸿蒙
 
 ## 本版变更
 
-见 `git log` 与 README 的「商业化与赞助」「开播验证（60043）」章节。
+- 一键安装脚本随 Release 一起发布：`install.sh`（Linux/macOS）、`install.ps1`（Windows）
+- 修复发布流水线未检出仓库、导致安装脚本打包失败的问题
+- 完整安装矩阵与平台使用说明（含 iOS / 鸿蒙 / Android 的 USB 端口转发流程）
+- 设置页「赞助与广告」、README 商业化章节（自 v0.1.2 起）
+- 开播 `60043` 人脸验证二维码（`risk_extra.v_voucher`，自 v0.1.2 起）
