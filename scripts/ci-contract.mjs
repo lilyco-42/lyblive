@@ -137,7 +137,7 @@ must(desktop.includes('run: cargo fmt -- --check'), 'Rust fmt drift')
 must(desktop.includes('run: cargo clippy --all-targets -- -D warnings'), 'Rust clippy drift')
 must(desktop.includes('run: cargo test'), 'Rust tests drift')
 must(desktop.includes('run: cargo build --release'), 'desktop release build drift')
-for (const s of ['node scripts/smoke.mjs', 'node scripts/mcp-smoke.mjs', 'node scripts/web-smoke.mjs', 'node scripts/browser-smoke.mjs', 'node scripts/web-mode-smoke.mjs']) {
+for (const s of ['node scripts/smoke.mjs', 'node scripts/mcp-smoke.mjs', 'node scripts/web-smoke.mjs', 'node scripts/browser-smoke.mjs', 'node scripts/web-mode-smoke.mjs', 'node scripts/platform-smoke.mjs']) {
   must(desktop.includes('run: ' + s), 'desktop smoke drift: ' + s)
 }
 must(desktop.includes('uses: browser-actions/setup-chrome@v2'), 'desktop browser setup action drift')

@@ -76,6 +76,10 @@ pub fn config_file() -> PathBuf {
 /// 判断 OBS 是否在运行（OBS 退出时会覆写 user.ini，必须先关）。
 /// Linux/macOS 扫 /proc；Windows 查 tasklist（进程名 obs64.exe / obs.exe）。
 pub fn obs_running() -> bool {
+    // 冒烟测试用：CI/脚本里没有真实 OBS，也不该被本机正在运行的 OBS 挡住
+    if std::env::var_os("LYBLIVE_OBS_SMOKE").is_some() {
+        return false;
+    }
     obs_running_probe(cfg!(windows))
 }
 
@@ -261,7 +265,7 @@ pub fn run_install(port: u16) -> Result<()> {
 
 /// 浮动态（与 OBS 的 statsDock 相同 flag），宽高才会被 Qt 保留。
 const FLOAT_FLAG: u8 = 2;
-const FLOAT_RECT: (i32, i32, i32, i32) = (1700, 100, 1100, 1560);
+const FLOAT_RECT: (i32, i32, i32, i32) = (1900, 120, 620, 1100);
 const DOCK_OBJECT_NAME: &str = "lyblive_extraBrowser";
 
 fn utf16be(text: &str) -> Vec<u8> {

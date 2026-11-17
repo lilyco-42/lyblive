@@ -88,6 +88,8 @@ jobs:
         run: node scripts/web-mode-smoke.mjs
         env:
           LYBLIVE_BROWSER_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+      - name: Platform CLI smoke (obs commands, per-OS config path)
+        run: node scripts/platform-smoke.mjs
       - name: Upload release binary
         uses: actions/upload-artifact@v4
         with:
