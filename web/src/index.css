@@ -128,3 +128,66 @@
     @apply font-sans;
     }
 }
+/* ---------------- 弹幕浮层（modules/danmu-overlay） ---------------- */
+
+/* 浮层页背景透明，OBS「浏览器源」直接叠加，无需色键 */
+html.lyblive-overlay,
+html.lyblive-overlay body,
+html.lyblive-overlay #root {
+  background: transparent !important;
+  overflow: hidden;
+}
+
+.lyblive-danmu {
+  position: absolute;
+  white-space: nowrap;
+  will-change: transform, opacity;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 3px rgb(0 0 0 / 45%);
+  paint-order: stroke fill;
+}
+
+.lyblive-danmu--scroll {
+  left: 0;
+  animation-name: lyblive-danmu-scroll;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes lyblive-danmu-scroll {
+  from {
+    transform: translate3d(100vw, -50%, 0);
+  }
+  to {
+    transform: translate3d(-100%, -50%, 0);
+  }
+}
+
+.lyblive-danmu--lyrics {
+  left: 50%;
+  bottom: 16%;
+  max-width: 88vw;
+  text-align: center;
+  white-space: normal;
+  animation: lyblive-danmu-lyrics 4.2s ease-out forwards;
+}
+
+@keyframes lyblive-danmu-lyrics {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px) scale(0.96);
+  }
+  12% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px) scale(1);
+  }
+}
