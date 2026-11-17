@@ -18,6 +18,28 @@ use crate::settings::SharedConfig;
 
 const APP_NAME: &str = "lyblive";
 const DEFAULT_PORT: u16 = 8765;
+/// `--open` 默认跟随常驻服务端口（与 lyblive.service 一致），避免撞上 8765 上的其它程序
+const OPEN_DEFAULT_PORT: u16 = 8768;
+
+/// 用 /api/health 判断端口上跑的是不是 lyblive（只用 std，不引入 HTTP 依赖）
+fn is_lyblive(port: u16) -> bool {
+    use std::io::{Read, Write};
+    use std::time::Duration;
+
+    let Ok(mut stream) = std::net::TcpStream::connect(("127.0.0.1", port)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(900)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(900)));
+    let request =
+        format!("GET /api/health HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n");
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let mut body = String::new();
+    let _ = stream.read_to_string(&mut body);
+    body.contains("\"name\":\"lyblive\"") || body.contains("\"name\": \"lyblive\"")
+}
 
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -79,15 +101,26 @@ fn main() -> anyhow::Result<()> {
         let port = std::env::var("LYBLIVE_PORT")
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(DEFAULT_PORT);
-        // --open：服务已在跑就只打开浏览器，避免端口冲突；没跑则照常启动
-        if open_only && std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-            let url = format!("http://127.0.0.1:{port}/");
-            #[cfg(feature = "browser")]
-            let _ = webbrowser::open(&url);
-            #[cfg(not(feature = "browser"))]
-            println!("lyblive 已在运行：{url}");
-            return Ok(());
+            .unwrap_or(if open_only {
+                OPEN_DEFAULT_PORT
+            } else {
+                DEFAULT_PORT
+            });
+        // --open：只有确认该端口上跑的就是 lyblive 才打开浏览器；
+        // 端口被别的程序（如 AgentDock 占 8765）占用时明确报错，绝不盲目打开。
+        if open_only {
+            if is_lyblive(port) {
+                let url = format!("http://127.0.0.1:{port}/");
+                println!("lyblive 已在运行：{url}");
+                #[cfg(feature = "browser")]
+                let _ = webbrowser::open(&url);
+                return Ok(());
+            }
+            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                anyhow::bail!(
+                    "端口 {port} 已被其它程序占用，且不是 lyblive。请用 LYBLIVE_PORT=<其它端口> 再试"
+                );
+            }
         }
         let open_browser = !args.iter().any(|a| a == "--no-browser");
         let runtime = tokio::runtime::Runtime::new()?;

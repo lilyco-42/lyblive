@@ -4,7 +4,7 @@ Version=1.0
 Name=lyblive Web 控制台
 GenericName=B 站直播助手
 Comment=在浏览器里登录 B 站并开播/停播（不依赖 OBS）
-Exec=@BIN@ --open
+Exec=env LYBLIVE_PORT=8768 @BIN@ --open
 Icon=applications-internet
 Terminal=false
 Categories=AudioVideo;Network;
