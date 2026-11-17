@@ -61,6 +61,23 @@ hdc rport tcp:8765 tcp:8765
 4. 想在 OBS 里用：退出 OBS 后执行 `lyblive --obs-install`，重开 OBS 即出现 lyblive 面板。
 5. 开播被 `60043` 拦截时，面板会用 `risk_extra.v_voucher` 生成官方人脸验证页二维码，手机 B 站 App 扫码即可完成。
 
+## Web 模式（不依赖 OBS）
+
+不想开 OBS 时，直接用浏览器控制：
+
+```bash
+lyblive --open           # 服务没跑就启动并打开浏览器；已在跑则只打开浏览器
+lyblive --web            # 只启动服务（默认 127.0.0.1:8765，可加 --no-browser）
+lyblive --web --no-browser   # 适合交给 systemd / 远程访问
+```
+
+- **Linux 一键安装**会额外写入应用菜单入口「lyblive Web 控制台」（模板见 `install/lyblive.desktop`，安装时把 `@BIN@` 换成实际路径）。
+- `--open` 会先探测 `127.0.0.1:$LYBLIVE_PORT`：已被 lyblive 监听就只开浏览器，不会抢端口或起第二个实例。
+- 手机 / 平板接法见「安装」里的 USB 端口转发小节（`adb reverse` / `iproxy` / `hdc rport`）。
+- Web 模式与 OBS dock 是**同一个前端**：五个页签、弹幕漂浮 `/overlay`、赞助与广告、界面缩放都可用。
+
+测试：`node scripts/web-mode-smoke.mjs`（真实二进制 + 真实 Chromium，断言 health、`--open` 不重复监听、五页签可达、设置页关键卡片、`/overlay?demo=1` 渲染与透明背景）。
+
 ## 快速开始
 
 前提：Rust 1.99+，Node.js 22+，pnpm 12+。Linux 本机已用 pnpm 12.19.0、Vite 8.3.7 验证。
@@ -224,7 +241,9 @@ curl -sS -H 'Host: 127.0.0.1:8768' http://127.0.0.1:8768/api/health
 安装器在 `--plan` 输出或 `--apply` 写入前执行 `destination preflight`：`check_write_target` 验证每个输出路径不是目录/损坏链接等 non-regular file、已有普通文件可读、父目录可写（`parent directory is not writable`），`check_readable_source` 验证二进制源可读（`cannot read installer source binary`）；任何一项失败都返回 rc=2 的 argparse 错误，不留半套部署，也不会把 `DO_NOT_TOUCH` 哨兵当备份对象。离线 smoke 对目录目标、`blocked parent`（父路径被普通文件阻塞）、0000 权限 unit、0555 父目录、0000 二进制源与损坏链接各自断言 `--plan`/`--apply` 均失败且原文件不变。安装器还在 `parse_args()` 后立即把 `HOME` 与 `XDG_CONFIG_HOME` 的绝对路径校验交给 argparse：`relative HOME` / `relative XDG_CONFIG_HOME` 分别返回 rc=2 的 `HOME must be an absolute path`、`XDG_CONFIG_HOME must be an absolute path`，不会在路径拼接前抛出 `RuntimeError`，也不会暴露 Python traceback 或写入任何文件；离线 smoke 的 5 条输入守卫逐条断言可读错误与 no traceback。此外，`HOME` 或 `XDG_CONFIG_HOME` 为 `~`、`~/...` 时由安装器按真实账户主目录显式展开，不再对临时 fixture 的 `HOME` 调用 `Path.expanduser()`（`RuntimeError: Could not determine home directory.`）；`~` 展开后的 `--plan` 返回 rc=0、显示 `HOME=/home/lilyco`，离线 smoke 同时断言服务目标存在且无 traceback。命令行 `--bin`、`--dock-ini` 的 `~`、`~/...` 同样经 `user_path()` 从真实账户主目录展开：夹具 `HOME=~` 下 `~/missing-lyblive` 返回 rc=2 的 `--bin is not a file: /home/lilyco/missing-lyblive`，`~/missing-user.ini` 的 `--plan` 输出 `OBS dock -> /home/lilyco/missing-user.ini [create]` 且不写真实主目录；两者都无 traceback。 corrupt deploy bundle（缺少 `lyblive.service`、非 UTF-8、硬编码 `/home/lilyco`、WorkingDirectory marker drift）由 `bundle_error()` 在读模板阶段统一转成 rc=2 的 `deployment template ... is invalid: ...; restore deploy/ from the release bundle`，既无 Python traceback，也不输出计划或写入任何文件；离线 smoke 复制 deploy/ 模板和 install.py 到四个独立夹具逐条验证。 安装器还会在任何 `--apply` 写入前做 `unreachable-systemd preflight with bounded timeouts`：用 `systemctl --user show-environment` 探测用户管理器，若当前 shell 没有 `XDG_RUNTIME_DIR`/`DBUS_SESSION_BUS_ADDRESS` 或 PATH 里缺 `systemctl`/`systemd-analyze`，`--plan` 明确打印 `systemd --user: UNREACHABLE`，`--apply` 以 rc=2 拒绝且一个文件都不写；此时可显式 `--no-systemctl` 仅安装文件，之后在图形/登录会话里手动 `daemon-reload && enable lyblive.service lyblive-obs.service`。离线 smoke 用 `sitecustomize.py` 隐藏两个工具、模拟 `TimeoutExpired`，并断言 `--no-systemctl` 路径仍可完成纯文件安装；所有 systemctl/systemd-analyze 子进程都有 `SYSTEMD_TIMEOUT = 15` 秒上限，卡住的用户管理器不会挂死安装器。
 
 
-## 单 OBS 集成（Custom Browser Dock）
+## 单 OBS 集成（本机部署与回归细节）
+
+> 面向使用者的操作步骤见后面的「OBS 集成（Windows / Linux / macOS）」；本节记录本机部署方式与回归检查项。
 
 本机 KDE/Wayland 会话里，OBS 33 的 Wayland 原生模式不渲染 Custom Browser Dock；而 X11/XWayland 模式若继承 `SESSION_MANAGER`、`WAYLAND_DISPLAY` 或桌面激活令牌，Qt 又会在约 10 秒后干净自退。已验证的做法是让 lyblive 后端与**同一个** OBS 进程配合：
 

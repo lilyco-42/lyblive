@@ -83,6 +83,11 @@ jobs:
         run: node scripts/browser-smoke.mjs
         env:
           LYBLIVE_BROWSER_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
+      - name: Web mode (no OBS) end-to-end smoke test
+        if: runner.os != 'macOS'
+        run: node scripts/web-mode-smoke.mjs
+        env:
+          LYBLIVE_BROWSER_BIN: ${{ steps.setup-chrome.outputs.chrome-path }}
       - name: Upload release binary
         uses: actions/upload-artifact@v4
         with:

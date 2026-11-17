@@ -68,8 +68,18 @@ case ":$PATH:" in
      echo '  echo '"'"'export PATH="$HOME/.local/bin:$PATH"'"'"' >> ~/.profile' ;;
 esac
 
+# 桌面入口（仅 Linux，可选）：不依赖 OBS 的浏览器模式入口
+if [ "$os" = "Linux" ]; then
+  apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  if mkdir -p "$apps_dir" 2>/dev/null \
+     && curl -fsSL "https://raw.githubusercontent.com/lilyco-42/lyblive/main/install/lyblive.desktop" -o "$tmp/lyblive.desktop" 2>/dev/null; then
+    sed "s|@BIN@|$BIN_DIR/lyblive|g" "$tmp/lyblive.desktop" > "$apps_dir/lyblive.desktop" 2>/dev/null \
+      && echo "==> 已添加应用菜单入口：lyblive Web 控制台"
+  fi
+fi
+
 echo
 echo "下一步："
-echo "  1) 启动 Web 控制台：$BIN_DIR/lyblive --web"
-echo "  2) 浏览器打开 http://127.0.0.1:8765/ 扫码登录 B 站"
+echo "  1) 浏览器模式（不需要 OBS）：$BIN_DIR/lyblive --open"
+echo "  2) 只启动服务：$BIN_DIR/lyblive --web --no-browser → http://127.0.0.1:8765/"
 echo "  3) 想在 OBS 里用：退出 OBS 后执行 $BIN_DIR/lyblive --obs-install"

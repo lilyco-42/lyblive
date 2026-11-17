@@ -65,7 +65,9 @@ fn main() -> anyhow::Result<()> {
     let ui = std::env::var("LILYCO_UI").ok();
     let ui = ui.as_deref();
     let mcp = args.iter().any(|a| a == "--mcp") || ui == Some("mcp");
+    let open_only = args.iter().any(|a| a == "--open");
     let web = args.iter().any(|a| a == "--web" || a == "--gui")
+        || open_only
         || (args.is_empty() && ui.is_none())
         || matches!(ui, Some("web" | "gui"));
     let tui = args.iter().any(|a| a == "--tui") || ui == Some("tui");
@@ -78,6 +80,15 @@ fn main() -> anyhow::Result<()> {
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
             .unwrap_or(DEFAULT_PORT);
+        // --open：服务已在跑就只打开浏览器，避免端口冲突；没跑则照常启动
+        if open_only && std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            let url = format!("http://127.0.0.1:{port}/");
+            #[cfg(feature = "browser")]
+            let _ = webbrowser::open(&url);
+            #[cfg(not(feature = "browser"))]
+            println!("lyblive 已在运行：{url}");
+            return Ok(());
+        }
         let open_browser = !args.iter().any(|a| a == "--no-browser");
         let runtime = tokio::runtime::Runtime::new()?;
         runtime.block_on(api::serve(api::ApiState { ctx, danmu }, port, open_browser))?;
@@ -95,7 +106,7 @@ fn main() -> anyhow::Result<()> {
 
 fn print_help() {
     println!(
-        "{APP_NAME} {}\n\nB 站直播助手：CLI / TUI / MCP / Web 共用一份命令注册表。\n\n用法:\n  {APP_NAME}                    启动本地 Web 控制台（默认 127.0.0.1:{DEFAULT_PORT}）\n  {APP_NAME} --web [--no-browser]\n  {APP_NAME} --mcp               作为 MCP stdio 服务（Agent 安全白名单）\n  {APP_NAME} --tui               启动终端交互界面\n  {APP_NAME} --obs-install      把 Web 控制台注册为 OBS 停靠面板（无需装 OBS 插件）\n  {APP_NAME} --obs-fix-dock     把已注册的面板修成浮动 360×760（OBS 退出后执行）\n  {APP_NAME} --obs-status       查看 OBS 停靠面板配置状态\n  {APP_NAME} --obs-uninstall    移除 OBS 停靠面板配置\n  {APP_NAME} <命令>             执行 CLI 子命令，例如 health
+        "{APP_NAME} {}\n\nB 站直播助手：CLI / TUI / MCP / Web 共用一份命令注册表。\n\n用法:\n  {APP_NAME}                    启动本地 Web 控制台（默认 127.0.0.1:{DEFAULT_PORT}）\n  {APP_NAME} --web [--no-browser]\n  {APP_NAME} --open              打开 Web 控制台（已在跑则只开浏览器，无需 OBS）\n  {APP_NAME} --mcp               作为 MCP stdio 服务（Agent 安全白名单）\n  {APP_NAME} --tui               启动终端交互界面\n  {APP_NAME} --obs-install      把 Web 控制台注册为 OBS 停靠面板（无需装 OBS 插件）\n  {APP_NAME} --obs-fix-dock     把已注册的面板修成浮动 360×760（OBS 退出后执行）\n  {APP_NAME} --obs-status       查看 OBS 停靠面板配置状态\n  {APP_NAME} --obs-uninstall    移除 OBS 停靠面板配置\n  {APP_NAME} <命令>             执行 CLI 子命令，例如 health
   {APP_NAME} --schema           导出 CLI/TUI/MCP 共用的命令 schema\n  {APP_NAME} --version|-V\n\n环境变量:\n  LYBLIVE_PORT                Web 监听端口\n  LYBLIVE_CONFIG_HOME         配置目录（默认 XDG 配置目录/lyblive）\n  LILYCO_UI=cli|tui|web|mcp   指定默认界面（cli 无参数时显示帮助）\n\n安全: 默认不持久化登录凭据；开启「记住登录」后凭据文件权限为 0600。推流密钥默认打码。",
         env!("CARGO_PKG_VERSION")
     );

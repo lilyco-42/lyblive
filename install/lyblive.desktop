@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=lyblive Web 控制台
+GenericName=B 站直播助手
+Comment=在浏览器里登录 B 站并开播/停播（不依赖 OBS）
+Exec=@BIN@ --open
+Icon=applications-internet
+Terminal=false
+Categories=AudioVideo;Network;
+Keywords=lyblive;bilibili;live;obs;
+StartupNotify=false
