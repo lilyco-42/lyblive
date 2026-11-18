@@ -265,7 +265,7 @@ pub fn run_install(port: u16) -> Result<()> {
 
 /// 浮动态（与 OBS 的 statsDock 相同 flag），宽高才会被 Qt 保留。
 const FLOAT_FLAG: u8 = 2;
-const FLOAT_RECT: (i32, i32, i32, i32) = (1900, 120, 620, 1100);
+const FLOAT_RECT: (i32, i32, i32, i32) = (1900, 120, 360, 760);
 const DOCK_OBJECT_NAME: &str = "lyblive_extraBrowser";
 
 fn utf16be(text: &str) -> Vec<u8> {

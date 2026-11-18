@@ -292,7 +292,10 @@ impl DanmuHub {
                     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
                 ),
             );
-            headers.insert("Origin", HeaderValue::from_static("https://live.bilibili.com"));
+            headers.insert(
+                "Origin",
+                HeaderValue::from_static("https://live.bilibili.com"),
+            );
             headers.insert(
                 "Cookie",
                 HeaderValue::from_str(&format!("buvid3={buvid}; DedeUserID={uid}"))
