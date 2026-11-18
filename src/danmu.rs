@@ -11,6 +11,8 @@ use anyhow::{anyhow, Result};
 use brotli::Decompressor as BrotliDecompressor;
 use flate2::read::ZlibDecoder;
 use serde_json::{json, Value};
+use tungstenite::client::IntoClientRequest;
+use tungstenite::http::header::HeaderValue;
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{connect, Message, WebSocket};
 
@@ -277,16 +279,26 @@ impl DanmuHub {
         buvid: &str,
         generation: u64,
     ) -> Result<()> {
-        let req = tungstenite::http::Request::builder()
-            .uri(url)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-            )
-            .header("Origin", "https://live.bilibili.com")
-            .header("Cookie", format!("buvid3={buvid}; DedeUserID={uid}"))
-            .body(())
+        // 必须让 tungstenite 生成完整握手（Sec-WebSocket-Key / Upgrade / Connection）；
+        // 手写 http::Request 会缺这些头，B 站直接拒绝升级（"Missing ... Sec-WebSocket-Key"）。
+        let mut req = url
+            .into_client_request()
             .map_err(|e| anyhow!("WebSocket 请求构造失败: {e}"))?;
+        {
+            let headers = req.headers_mut();
+            headers.insert(
+                "User-Agent",
+                HeaderValue::from_static(
+                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+                ),
+            );
+            headers.insert("Origin", HeaderValue::from_static("https://live.bilibili.com"));
+            headers.insert(
+                "Cookie",
+                HeaderValue::from_str(&format!("buvid3={buvid}; DedeUserID={uid}"))
+                    .map_err(|e| anyhow!("Cookie 头非法: {e}"))?,
+            );
+        }
         let (mut ws, _resp) = connect(req).map_err(|e| anyhow!("WebSocket 握手失败: {e}"))?;
         set_read_timeout(&mut ws, Duration::from_secs(31))?;
         let auth = json!({"uid": uid, "roomid": room_id, "protover": 3, "platform": "web", "type": 2, "key": token});

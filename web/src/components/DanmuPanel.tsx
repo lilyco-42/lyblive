@@ -19,9 +19,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { useDanmu } from "@/hooks/useDanmu";
+import { OverlayStage } from "@/modules/danmu-overlay/OverlayStage";
+import { loadOverlayConfig } from "@/modules/danmu-overlay/config";
 import { errorMessage, type DanmuItem } from "@/lib/api";
 import { formatClock, formatCount, formatElapsed } from "@/lib/format";
 
@@ -58,6 +61,7 @@ export function DanmuPanel() {
     startedAt,
     stats,
     items,
+    seq,
     paused,
     loading,
     error,
@@ -69,6 +73,14 @@ export function DanmuPanel() {
     clear,
   } = useDanmu();
 
+  const [floatTop, setFloatTop] = useState<boolean>(() => {
+    try {
+      return globalThis.localStorage?.getItem("lyblive.danmuFloat") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const floatConfig = useMemo(() => ({ ...loadOverlayConfig(""), mode: "scroll" as const }), []);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -123,9 +135,30 @@ export function DanmuPanel() {
     }
   }
 
+  function toggleFloatTop(next: boolean) {
+    setFloatTop(next);
+    try {
+      globalThis.localStorage?.setItem("lyblive.danmuFloat", next ? "1" : "0");
+    } catch {
+      // 隐私模式忽略，本次会话仍生效
+    }
+  }
+
   return (
     <div className="space-y-4">
       {error !== null ? <ErrorAlert title="弹幕接口出错" message={error} /> : null}
+
+      {floatTop ? (
+        <div
+          className="sticky top-0 z-20 h-24 overflow-hidden rounded-xl border border-border bg-black/85 shadow-lg backdrop-blur"
+          data-testid="danmu-float-top"
+        >
+          <OverlayStage
+            feed={{ running, roomId, items, seq, error }}
+            config={floatConfig}
+          />
+        </div>
+      ) : null}
 
       <Card>
         <CardHeader>
@@ -168,6 +201,10 @@ export function DanmuPanel() {
           <Button variant="ghost" onClick={() => void refresh()}>
             刷新统计
           </Button>
+          <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+            <Switch checked={floatTop} onCheckedChange={toggleFloatTop} />
+            置顶滚动
+          </label>
           {paused ? (
             <span className="text-xs text-amber-500">已暂停自动滚底，新消息仍会继续接收</span>
           ) : null}

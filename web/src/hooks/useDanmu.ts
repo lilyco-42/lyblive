@@ -56,6 +56,8 @@ export function useDanmu() {
     topKeywords: [],
   });
   const [items, setItems] = useState<DanmuItem[]>([]);
+  /** 每条新消息 +1：仅供置顶滚动层判断“有一条新的” */
+  const [seq, setSeq] = useState(0);
   const [paused, setPaused] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -151,6 +153,7 @@ export function useDanmu() {
             next.push(item);
             return next;
           });
+          setSeq((value) => value + 1);
         }
       }
     };
@@ -212,6 +215,7 @@ export function useDanmu() {
     startedAt,
     stats,
     items,
+    seq,
     paused,
     loading,
     error,
