@@ -2,8 +2,9 @@
 # lyblive 一键安装（Linux / macOS）
 # 用法：
 #   curl -fsSL https://raw.githubusercontent.com/lilyco-42/lyblive/main/install/install.sh | sh
-#   LYBLIVE_VERSION=v0.1.3 sh install.sh      # 指定版本
+#   LYBLIVE_VERSION=v0.3.6 sh install.sh      # 指定版本
 #   LYBLIVE_BIN_DIR=/usr/local/bin sh install.sh  # 指定安装目录
+#   LYBLIVE_FLOAT=1 sh install.sh             # Linux：同时启用桌面悬浮弹幕层（systemd user）
 set -eu
 
 REPO="lilyco-42/lyblive"
@@ -82,4 +83,38 @@ echo
 echo "下一步："
 echo "  1) 浏览器模式（不需要 OBS）：$BIN_DIR/lyblive --open"
 echo "  2) 只启动服务：$BIN_DIR/lyblive --web --no-browser → http://127.0.0.1:8769/"
-echo "  3) 想在 OBS 里用：退出 OBS 后执行 $BIN_DIR/lyblive --obs-install"
+echo "  3) 桌面悬浮弹幕层（Linux）：$BIN_DIR/lyblive --float"
+echo "  4) 想在 OBS 里用：退出 OBS 后执行 $BIN_DIR/lyblive --obs-install"
+
+# 桌面悬浮弹幕层（Linux，可选）：LYBLIVE_FLOAT=1 时装成 systemd user 服务并立即启动
+if [ "$os" = "Linux" ] && [ "${LYBLIVE_FLOAT:-0}" = "1" ]; then
+  if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+    unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    mkdir -p "$unit_dir"
+    cat > "$unit_dir/lyblive-float.service" <<EOF
+[Unit]
+Description=lyblive 悬浮弹幕层 + 托盘
+After=network-online.target
+
+[Service]
+Environment=GDK_BACKEND=x11
+Environment=DISPLAY=${DISPLAY:-:0}
+Environment=LYBLIVE_PORT=8768
+ExecStart=$BIN_DIR/lyblive --float
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+    echo "==> 已写入 $unit_dir/lyblive-float.service"
+    systemctl --user daemon-reload || true
+    if systemctl --user enable --now lyblive-float.service; then
+      echo "==> 桌面悬浮弹幕层已启动：lyblive-float.service"
+    else
+      echo "提示：自动启动失败，可稍后手动执行 systemctl --user enable --now lyblive-float.service"
+    fi
+  else
+    echo "提示：当前没有可用的 systemd user 会话，直接运行 $BIN_DIR/lyblive --float 即可"
+  fi
+fi

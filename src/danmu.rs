@@ -8,6 +8,7 @@ use std::time::Duration;
 use crate::util::now_ms;
 
 use anyhow::{anyhow, Result};
+use base64::Engine as _;
 use brotli::Decompressor as BrotliDecompressor;
 use flate2::read::ZlibDecoder;
 use serde_json::{json, Value};
@@ -24,7 +25,113 @@ pub struct DanmuItem {
     pub ts: u64,
     pub kind: String,
     pub user: String,
+    /// 头像 URL（B 站 CDN）；老格式消息可能为空
+    pub face: String,
     pub text: String,
+    /// 礼物原名（仅 gift 消息）
+    pub gift_name: String,
+    /// 礼物数量（仅 gift 消息，至少 1）
+    pub gift_num: i64,
+    /// 礼物图标 URL（仅 gift 消息）
+    pub gift_icon: String,
+}
+
+/// 解析后的原始消息；非礼物类消息的 gift_* 字段为空。
+#[derive(Default)]
+struct Parsed {
+    kind: String,
+    user: String,
+    text: String,
+    face: String,
+    gift_name: String,
+    gift_num: i64,
+    gift_icon: String,
+}
+
+#[derive(Default)]
+struct PbInteract {
+    uname: String,
+    msg_type: i64,
+    face: String,
+}
+
+fn read_varint(buf: &[u8], i: &mut usize) -> Option<u64> {
+    let mut r = 0u64;
+    let mut shift = 0u32;
+    loop {
+        let b = *buf.get(*i)?;
+        *i += 1;
+        r |= u64::from(b & 0x7f) << shift;
+        if b & 0x80 == 0 {
+            return Some(r);
+        }
+        shift += 7;
+        if shift >= 64 {
+            return None;
+        }
+    }
+}
+
+fn walk_pb(buf: &[u8], mut f: impl FnMut(u64, u64, &[u8])) {
+    let mut i = 0usize;
+    while i < buf.len() {
+        let Some(key) = read_varint(buf, &mut i) else {
+            return;
+        };
+        match key & 7 {
+            0 => {
+                let Some(v) = read_varint(buf, &mut i) else {
+                    return;
+                };
+                f(key >> 3, v, &[]);
+            }
+            2 => {
+                let Some(len) = read_varint(buf, &mut i) else {
+                    return;
+                };
+                let Some(end) = i.checked_add(len as usize) else {
+                    return;
+                };
+                if end > buf.len() {
+                    return;
+                }
+                f(key >> 3, 0, &buf[i..end]);
+                i = end;
+            }
+            1 => i += 8,
+            5 => i += 4,
+            _ => return,
+        }
+    }
+}
+
+// INTERACT_WORD_V2 只给 `data.pb`（base64 protobuf），用户名/类型/头像都在里面。
+fn decode_interact_pb(b64: &str) -> Option<PbInteract> {
+    let buf = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    let mut out = PbInteract::default();
+    let mut base: Option<Vec<u8>> = None;
+    walk_pb(&buf, |field, v, bytes| match field {
+        2 => out.uname = String::from_utf8_lossy(bytes).into_owned(),
+        5 => out.msg_type = v as i64,
+        22 => walk_pb(bytes, |f2, _, b2| {
+            if f2 == 2 {
+                base = Some(b2.to_vec());
+            }
+        }),
+        _ => {}
+    });
+    if let Some(b) = base {
+        walk_pb(&b, |field, _, bytes| match field {
+            1 => {
+                if out.uname.is_empty() {
+                    out.uname = String::from_utf8_lossy(bytes).into_owned();
+                }
+            }
+            2 => out.face = String::from_utf8_lossy(bytes).into_owned(),
+            _ => {}
+        });
+    }
+    Some(out)
 }
 
 #[derive(Clone, Debug)]
@@ -94,7 +201,8 @@ impl DanmuHub {
             .take(50)
             .map(|x| {
                 json!({
-                    "ts": x.ts, "kind": x.kind, "user": x.user, "text": x.text,
+                    "ts": x.ts, "kind": x.kind, "user": x.user, "face": x.face, "text": x.text,
+                    "giftName": x.gift_name, "giftNum": x.gift_num, "giftIcon": x.gift_icon,
                 })
             })
             .collect();
@@ -230,7 +338,8 @@ impl DanmuHub {
             r.stats.recent.pop_front();
         }
         let payload = json!({
-            "ts": item.ts, "kind": item.kind, "user": item.user, "text": item.text,
+            "ts": item.ts, "kind": item.kind, "user": item.user, "face": item.face, "text": item.text,
+            "giftName": item.gift_name, "giftNum": item.gift_num, "giftIcon": item.gift_icon,
             "running": r.running, "popularity": r.stats.popularity,
         });
         self.broadcast_locked(&r, payload);
@@ -322,9 +431,13 @@ impl DanmuHub {
                         if let Some(v) = item {
                             self.push(DanmuItem {
                                 ts: now_ms(),
-                                kind: v.0,
-                                user: v.1,
-                                text: v.2,
+                                kind: v.kind,
+                                user: v.user,
+                                face: v.face,
+                                text: v.text,
+                                gift_name: v.gift_name,
+                                gift_num: v.gift_num,
+                                gift_icon: v.gift_icon,
                             });
                         } else { /* popularity or ack handled inside decode */
                         }
@@ -353,15 +466,11 @@ impl DanmuHub {
         Ok(())
     }
 
-    fn decode_frames(
-        &self,
-        bytes: &[u8],
-        depth: u8,
-    ) -> Result<Vec<Option<(String, String, String)>>> {
+    fn decode_frames(&self, bytes: &[u8], depth: u8) -> Result<Vec<Option<Parsed>>> {
         if depth > 4 {
             return Ok(vec![]);
         }
-        let mut out = Vec::new();
+        let mut out: Vec<Option<Parsed>> = Vec::new();
         let mut offset = 0usize;
         while offset + 16 <= bytes.len() {
             let len = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
@@ -404,52 +513,168 @@ impl DanmuHub {
         Ok(out)
     }
 
-    fn parse_command(&self, v: &Value) -> Option<(String, String, String)> {
+    fn parse_command(&self, v: &Value) -> Option<Parsed> {
         let cmd = str_val(v, "cmd");
-        match cmd.as_str() {
-            "DANMU_MSG" => {
-                let info = obj(v, "info");
-                let arr = info.as_array()?;
-                let text = arr.get(1)?.as_str().unwrap_or_default().to_string();
-                let user_info = arr.get(2)?.as_array()?;
-                let user = user_info.get(1)?.as_str().unwrap_or_default().to_string();
-                Some(("danmu".into(), user, text))
+        // B 站命令存在多种变体：DANMU_MSG:4:0:2:2:2:0、INTERACT_WORD_V2、
+        // COMBO_SEND:... —— 必须用前缀匹配，精确比较会把观众消息整批丢掉。
+        if cmd.starts_with("DANMU_MSG") {
+            let info = obj(v, "info");
+            let arr = info.as_array()?;
+            if tracing::enabled!(tracing::Level::DEBUG) {
+                let raw = serde_json::to_string(&info).unwrap_or_default();
+                tracing::debug!(raw = %raw.chars().take(1500).collect::<String>(), "DANMU_MSG raw");
             }
-            "SEND_GIFT" => {
-                let d = obj(v, "data");
-                let gift = {
-                    let x = str_val(d, "giftName");
-                    if x.is_empty() {
-                        str_val(d, "gift_name")
-                    } else {
-                        x
+            let text = arr.get(1)?.as_str().unwrap_or_default().to_string();
+            let user_info = arr.get(2)?.as_array()?;
+            let mut user = user_info.get(1)?.as_str().unwrap_or_default().to_string();
+            let mut face = String::new();
+            // 用户资料在 info[0] 里的一段对象中（不同版本位置会变，逐项扫描最稳）。
+            if let Some(first) = arr.first().and_then(|v| v.as_array()) {
+                for entry in first {
+                    let Some(user_obj) = entry.get("user") else {
+                        continue;
+                    };
+                    let base = user_obj.get("base").unwrap_or(user_obj);
+                    if user.is_empty() {
+                        user = str_val(base, "name");
                     }
-                };
-                Some((
-                    "gift".into(),
-                    str_val(d, "uname"),
-                    format!("{gift} x{}", i64_val(d, "num")),
-                ))
-            }
-            "INTERACT_WORD" | "ENTRY_EFFECT" | "COMBO_SEND" => {
-                let d = obj(v, "data");
-                let text = match cmd.as_str() {
-                    "INTERACT_WORD" => match i64_val(d, "msg_type") {
-                        1 => "进入直播间",
-                        2 => "关注了直播间",
-                        3 => "分享了直播间",
-                        _ => "互动",
+                    let candidate = str_val(base, "face");
+                    if !candidate.is_empty() {
+                        face = candidate;
+                        break;
                     }
-                    .to_string(),
-                    "ENTRY_EFFECT" => str_val(d, "copy_writing")
-                        .replace("<%", "")
-                        .replace("%>", ""),
-                    _ => format!("连击 x{}", i64_val(d, "combo_num")),
-                };
-                Some(("enter".into(), str_val(d, "uname"), text))
+                }
+                if tracing::enabled!(tracing::Level::DEBUG) {
+                    tracing::debug!(
+                        len = first.len(),
+                        face_found = !face.is_empty(),
+                        "DANMU_MSG info0 scan"
+                    );
+                }
             }
-            _ => None,
+            return Some(Parsed {
+                kind: "danmu".into(),
+                user,
+                text,
+                face,
+                ..Parsed::default()
+            });
         }
+
+        if cmd.starts_with("SEND_GIFT") {
+            let d = obj(v, "data");
+            let mut gift_name = str_val(d, "giftName");
+            if gift_name.is_empty() {
+                gift_name = str_val(d, "gift_name");
+            }
+            let mut num = i64_val(d, "num");
+            if num <= 0 {
+                num = i64_val(d, "batch_combo_num");
+            }
+            if num <= 0 {
+                num = i64_val(d, "combo_num");
+            }
+            if num <= 0 {
+                num = 1;
+            }
+            // 不同版本把图标放在 giftInfo / gift_info / 顶层，逐层回退最稳。
+            let info = obj(d, "giftInfo");
+            let legacy = obj(d, "gift_info");
+            let mut gift_icon = str_val(info, "img_basic");
+            for candidate in [
+                str_val(info, "webp"),
+                str_val(info, "gif"),
+                str_val(legacy, "img_basic"),
+                str_val(legacy, "webp"),
+                str_val(legacy, "gif"),
+                str_val(d, "img_basic"),
+                str_val(d, "giftIcon"),
+            ] {
+                if !gift_icon.is_empty() {
+                    break;
+                }
+                gift_icon = candidate;
+            }
+            let text = if gift_name.is_empty() {
+                format!("礼物 ×{num}")
+            } else if num > 1 {
+                format!("{gift_name} ×{num}")
+            } else {
+                gift_name.clone()
+            };
+            return Some(Parsed {
+                kind: "gift".into(),
+                user: str_val(d, "uname"),
+                text,
+                face: str_val(d, "face"),
+                gift_name,
+                gift_num: num,
+                gift_icon,
+            });
+        }
+
+        if cmd.starts_with("INTERACT_WORD")
+            || cmd.starts_with("ENTRY_EFFECT")
+            || cmd.starts_with("COMBO_SEND")
+        {
+            let d = obj(v, "data");
+            if tracing::enabled!(tracing::Level::DEBUG) {
+                tracing::debug!(
+                    cmd = %cmd,
+                    raw = %v.to_string().chars().take(1200).collect::<String>(),
+                    "interact raw"
+                );
+            }
+            let mut user = str_val(d, "uname");
+            let mut face = str_val(d, "face");
+            let mut msg_type = i64_val(d, "msg_type");
+            let pb = str_val(d, "pb");
+            if !pb.is_empty() {
+                if let Some(info) = decode_interact_pb(&pb) {
+                    if user.is_empty() {
+                        user = info.uname;
+                    }
+                    if msg_type == 0 {
+                        msg_type = info.msg_type;
+                    }
+                    if face.is_empty() {
+                        face = info.face;
+                    }
+                }
+            }
+            if user.is_empty() {
+                user = str_val(obj(d, "uinfo"), "uname");
+            }
+            if face.is_empty() {
+                face = str_val(obj(d, "uinfo"), "face");
+            }
+            let text = if cmd.starts_with("INTERACT_WORD") {
+                match msg_type {
+                    1 => "进入直播间",
+                    2 => "关注了直播间",
+                    3 => "分享了直播间",
+                    4 => "特别关注",
+                    _ => "互动",
+                }
+                .to_string()
+            } else if cmd.starts_with("ENTRY_EFFECT") {
+                str_val(d, "copy_writing")
+                    .replace("<%", "")
+                    .replace("%>", "")
+            } else {
+                format!("连击 x{}", i64_val(d, "combo_num"))
+            };
+            return Some(Parsed {
+                kind: "enter".into(),
+                user,
+                text,
+                face,
+                ..Parsed::default()
+            });
+        }
+
+        tracing::debug!(cmd = %cmd, "未处理的弹幕命令");
+        None
     }
 }
 
@@ -523,9 +748,14 @@ mod tests {
         for i in 0..305 {
             hub.push(DanmuItem {
                 ts: 1000 + i,
+
                 kind: "danmu".into(),
                 user: "u".into(),
+                face: String::new(),
                 text: format!("关键词{i} 测试"),
+                gift_name: String::new(),
+                gift_num: 0,
+                gift_icon: String::new(),
             });
         }
         let s = hub.status();
@@ -534,18 +764,101 @@ mod tests {
     }
 
     #[test]
+    fn parses_face_url_from_user_base() {
+        let hub = DanmuHub::new(state());
+        let dm = json!({
+            "cmd": "DANMU_MSG:4:0:2:2:2:0",
+            "info": [
+                [null, null, null, null, null, null, null, null,
+                 null, null, null, null, null, null, null,
+                 {"user": {"base": {"name": "小明", "face": "https://i2.hdslb.com/bfs/face/x.jpg"}}}],
+                "带脸",
+                [123, "小明", 0]
+            ]
+        });
+        let got = hub.parse_command(&dm).unwrap();
+        assert_eq!(got.user, "小明");
+        assert_eq!(got.face, "https://i2.hdslb.com/bfs/face/x.jpg");
+    }
+
+    #[test]
+    fn decodes_interact_word_v2_pb() {
+        let hub = DanmuHub::new(state());
+        let v = json!({
+            "cmd": "INTERACT_WORD_V2",
+            "data": {
+                "dmscore": 3,
+                "pb": "CK+WgLftsqYGEgd6aHl1dWthIgEBKAEwtOj83AY4noj31wZA7qyY+p40YgB4sticre+oy/QYmgEAsgFmCK+WgLftsqYGElUKB3poeXV1a2ESSmh0dHBzOi8vaTEuaGRzbGIuY29tL2Jmcy9mYWNlL2Y5YjcyMjVkYmM2NTYzMTM5NTA4YmIxYmZjOGY2YjAzYmM0Y2IzNjQuanBnIgIIBzIAugEAwgEA"
+            }
+        });
+        let got = hub.parse_command(&v).unwrap();
+        assert_eq!(got.kind, "enter");
+        assert_eq!(got.user, "zhyuuka");
+        assert_eq!(got.text, "进入直播间");
+        assert!(got.face.starts_with("https://i1.hdslb.com/bfs/face/"));
+    }
+
+    #[test]
+    fn interact_word_legacy_fields_still_work() {
+        let hub = DanmuHub::new(state());
+        let v = json!({
+            "cmd": "INTERACT_WORD",
+            "data": {"uname": "小明", "msg_type": 2, "uinfo": {"face": "https://x/f.jpg"}}
+        });
+        let got = hub.parse_command(&v).unwrap();
+        assert_eq!(got.user, "小明");
+        assert_eq!(got.text, "关注了直播间");
+        assert_eq!(got.face, "https://x/f.jpg");
+    }
+
+    #[test]
+    fn status_carries_face_for_avatar_rendering() {
+        let hub = DanmuHub::new(state());
+        hub.push(DanmuItem {
+            ts: 1,
+            kind: "danmu".into(),
+            user: "u".into(),
+            face: "https://x/f.jpg".into(),
+            text: "hi".into(),
+            gift_name: String::new(),
+            gift_num: 0,
+            gift_icon: String::new(),
+        });
+        let s = hub.status();
+        assert_eq!(s["recent"][0]["face"], "https://x/f.jpg");
+    }
+
+    #[test]
     fn parses_danmu_and_gift_commands() {
         let hub = DanmuHub::new(state());
         let dm = json!({"cmd": "DANMU_MSG", "info": ["", "你好 世界", [123, "小明", 0]]});
-        assert_eq!(
-            hub.parse_command(&dm).unwrap(),
-            ("danmu".into(), "小明".into(), "你好 世界".into())
-        );
-        let gift =
-            json!({"cmd": "SEND_GIFT", "data": {"giftName": "辣条", "uname": "小红", "num": 2}});
+        let got = hub.parse_command(&dm).unwrap();
+        assert_eq!(got.kind, "danmu");
+        assert_eq!(got.user, "小明");
+        assert_eq!(got.text, "你好 世界");
+
+        let gift = json!({
+            "cmd": "SEND_GIFT",
+            "data": {
+                "giftName": "辣条", "uname": "小红", "num": 3,
+                "face": "https://i0.hdslb.com/bfs/face/g.jpg",
+                "giftInfo": {"img_basic": "https://i0.hdslb.com/bfs/gift/latiao.png"}
+            }
+        });
         let got = hub.parse_command(&gift).unwrap();
-        assert_eq!(got.0, "gift");
-        assert!(got.2.contains("辣条"));
+        assert_eq!(got.kind, "gift");
+        assert_eq!(got.user, "小红");
+        assert_eq!(got.gift_name, "辣条");
+        assert_eq!(got.gift_num, 3);
+        assert_eq!(got.gift_icon, "https://i0.hdslb.com/bfs/gift/latiao.png");
+        assert_eq!(got.text, "辣条 ×3");
+        assert_eq!(got.face, "https://i0.hdslb.com/bfs/face/g.jpg");
+
+        let combo = json!({
+            "cmd": "SEND_GIFT",
+            "data": {"giftName": "辣条", "num": 0, "batch_combo_num": 5, "uname": "u"}
+        });
+        assert_eq!(hub.parse_command(&combo).unwrap().gift_num, 5);
     }
 
     #[test]
@@ -564,6 +877,6 @@ mod tests {
         framed.extend_from_slice(&outer[8..]);
         let got = hub.decode_frames(&framed, 0).unwrap();
         assert_eq!(got.len(), 1);
-        assert_eq!(got[0].as_ref().unwrap().2, "hello");
+        assert_eq!(got[0].as_ref().unwrap().text, "hello");
     }
 }

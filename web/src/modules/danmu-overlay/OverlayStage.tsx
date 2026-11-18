@@ -6,6 +6,7 @@ interface FloatingItem {
   id: number;
   lane: number;
   text: string;
+  user: string;
   kind: string;
 }
 
@@ -14,12 +15,13 @@ const MAX_FLOATING = 80;
 /** 歌词模式的停留时长（ms），与 index.css 的动画时长保持一致 */
 const LYRICS_HOLD_MS = 4200;
 
-function decorate(item: { kind: string; text: string; user: string }): string {
+/** 名字与内容分开渲染，名字用高亮色，避免“只看到内容不知道是谁说的”。 */
+function bodyOf(item: { kind: string; text: string }): string {
   if (item.kind === "gift") {
     return `🎁 ${item.text}`;
   }
   if (item.kind === "enter") {
-    return item.user === "" ? "👋 有人进入直播间" : `👋 ${item.user} 进入直播间`;
+    return "进入直播间";
   }
   return item.text;
 }
@@ -53,10 +55,10 @@ export function OverlayStage({ feed, config }: { feed: DanmuFeed; config: Overla
     nextIdRef.current += 1;
     const lane = laneRef.current % config.lanes;
     laneRef.current += 1;
-    const text = decorate(latest);
+    const text = bodyOf(latest);
 
     if (config.mode === "lyrics") {
-      setItems((prev) => [...prev, { id, lane, text, kind: latest.kind }].slice(-2));
+      setItems((prev) => [...prev, { id, lane, text, user: latest.user, kind: latest.kind }].slice(-2));
       const timer = globalThis.setTimeout(() => {
         timersRef.current.delete(timer);
         setItems((prev) => prev.filter((item) => item.id !== id));
@@ -65,7 +67,7 @@ export function OverlayStage({ feed, config }: { feed: DanmuFeed; config: Overla
       return;
     }
 
-    setItems((prev) => [...prev, { id, lane, text, kind: latest.kind }].slice(-MAX_FLOATING));
+    setItems((prev) => [...prev, { id, lane, text, user: latest.user, kind: latest.kind }].slice(-MAX_FLOATING));
   }, [feed.seq, feed.items, config]);
 
   useEffect(
@@ -96,6 +98,7 @@ export function OverlayStage({ feed, config }: { feed: DanmuFeed; config: Overla
         if (config.mode === "lyrics") {
           return (
             <div key={item.id} className="lyblive-danmu lyblive-danmu--lyrics" style={common}>
+              {item.user ? <span className="lyblive-danmu-name">{item.user}：</span> : null}
               {item.text}
             </div>
           );
@@ -112,6 +115,7 @@ export function OverlayStage({ feed, config }: { feed: DanmuFeed; config: Overla
             }}
             onAnimationEnd={() => setItems((prev) => prev.filter((entry) => entry.id !== item.id))}
           >
+            {item.user ? <span className="lyblive-danmu-name">{item.user}：</span> : null}
             {item.text}
           </div>
         );

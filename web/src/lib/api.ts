@@ -142,7 +142,15 @@ export interface DanmuItem {
   ts: number;
   kind: string;
   user: string;
+  /** 头像 URL（B 站 CDN），老格式消息可能为空 */
+  face?: string;
   text: string;
+  /** 礼物原名（仅 gift 消息） */
+  giftName?: string;
+  /** 礼物数量（仅 gift 消息） */
+  giftNum?: number;
+  /** 礼物图标 URL（仅 gift 消息） */
+  giftIcon?: string;
 }
 
 export interface DanmuStatusResponse {

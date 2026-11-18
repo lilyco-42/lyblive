@@ -35,7 +35,16 @@ function parseItem(value: unknown): DanmuItem | null {
       user = profile.name;
     }
   }
-  return { ts: record.ts, kind: record.kind, user, text: record.text };
+  return {
+    ts: record.ts,
+    kind: record.kind,
+    user,
+    text: record.text,
+    face: typeof record.face === "string" ? record.face : "",
+    giftName: typeof record.giftName === "string" ? record.giftName : "",
+    giftNum: typeof record.giftNum === "number" ? record.giftNum : 0,
+    giftIcon: typeof record.giftIcon === "string" ? record.giftIcon : "",
+  };
 }
 
 /**
@@ -64,6 +73,7 @@ export function useDanmu() {
 
   const mountedRef = useRef(true);
   const sourceRef = useRef<EventSource | null>(null);
+  const startedRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -86,8 +96,13 @@ export function useDanmu() {
       setStartedAt(data.startedAt);
       setStats(data.stats);
       setError(null);
-      // 首次拿到历史消息时填充列表，避免刚开页面一片空白
-      if (data.recent.length > 0) {
+      // 服务重启后 startedAt 变化，旧消息已不在后端内存里，清掉避免残留误导
+      const startedAt = data.startedAt ?? 0;
+      const restarted = startedRef.current !== 0 && startedRef.current !== startedAt;
+      startedRef.current = startedAt;
+      if (restarted) {
+        setItems(data.recent.slice(-MAX_ITEMS));
+      } else if (data.recent.length > 0) {
         setItems((prev) => {
           if (prev.length > 0) {
             return prev;

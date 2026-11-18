@@ -413,7 +413,12 @@ impl AppState {
     pub fn room(&self) -> anyhow::Result<Value> {
         let rid = self.room_id(None)?;
         let uid = self.session().map(|s| s.uid).unwrap_or(0);
-        let info = self.api().room_info(rid)?;
+        // room/v1/Room/get_info 走 CDN 缓存：改标题/分区后立刻读回还是旧值，
+        // 控制台会误判「保存无效」。优先用实时的 getInfoByRoom，失败再回退。
+        let info = match self.api().room_info_live(rid) {
+            Ok(v) if i64_val(&v, "room_id") > 0 => v,
+            _ => self.api().room_info(rid)?,
+        };
         let news = self.api().room_news(rid, uid).unwrap_or_default();
         let live_status = i64_val(&info, "live_status");
         let status_text = match live_status {
@@ -512,6 +517,99 @@ mod tests {
             file: dir.join("config.json"),
             inner: Arc::new(RwLock::new(DiskConfig::default())),
         }
+    }
+
+    struct LiveRoom;
+
+    impl Transport for LiveRoom {
+        fn call(
+            &self,
+            _m: &str,
+            url: &str,
+            _q: &[(String, String)],
+            _f: Option<&[(String, String)]>,
+            _c: Option<&str>,
+        ) -> anyhow::Result<RawResponse> {
+            let body = if url.contains("getInfoByRoom") {
+                json!({"code": 0, "data": {"room_info": {
+                    "room_id": 42, "short_id": 7, "uid": 1, "title": "新标题",
+                    "live_status": 1, "area_id": 11, "area_name": "分区A",
+                    "parent_area_id": 1, "parent_area_name": "父分区",
+                    "online": 88, "keyframe": "k.jpg"
+                }}})
+            } else if url.contains("get_info") {
+                json!({"code": 0, "data": {"room_id": 42, "title": "旧标题"}})
+            } else if url.contains("getRoomNews") {
+                json!({"code": 0, "data": {"content": "公告内容"}})
+            } else {
+                json!({"code": 0, "data": {}})
+            };
+            Ok(RawResponse {
+                body,
+                set_cookies: vec![],
+            })
+        }
+    }
+
+    struct EmptyLive;
+
+    impl Transport for EmptyLive {
+        fn call(
+            &self,
+            _m: &str,
+            url: &str,
+            _q: &[(String, String)],
+            _f: Option<&[(String, String)]>,
+            _c: Option<&str>,
+        ) -> anyhow::Result<RawResponse> {
+            let body = if url.contains("getInfoByRoom") {
+                json!({"code": 0, "data": {}})
+            } else if url.contains("get_info") {
+                json!({"code": 0, "data": {"room_id": 42, "title": "旧标题"}})
+            } else {
+                json!({"code": 0, "data": {}})
+            };
+            Ok(RawResponse {
+                body,
+                set_cookies: vec![],
+            })
+        }
+    }
+
+    fn logged_in(st: &AppState, room_id: i64) {
+        st.inner.write().unwrap().login = Some(LoginSession {
+            cookie: "DedeUserID=1; bili_jct=c".into(),
+            csrf: "c".into(),
+            uid: 1,
+            room_id,
+            profile: None,
+            persisted: false,
+        });
+    }
+
+    #[test]
+    fn room_reads_live_endpoint_so_title_is_not_stale() {
+        let tmp = tempfile::tempdir().unwrap();
+        let st = AppState::new(BiliApi::with_transport(Arc::new(LiveRoom)), cfg(tmp.path()));
+        logged_in(&st, 42);
+        let room = st.room().unwrap();
+        assert_eq!(room["room"]["title"], "新标题");
+        assert_eq!(room["room"]["description"], "公告内容");
+        assert_eq!(room["room"]["online"], 88);
+        assert_eq!(room["room"]["parentAreaName"], "父分区");
+        assert_eq!(room["room"]["liveStatusText"], "直播中");
+    }
+
+    #[test]
+    fn room_falls_back_to_get_info_when_live_payload_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let st = AppState::new(
+            BiliApi::with_transport(Arc::new(EmptyLive)),
+            cfg(tmp.path()),
+        );
+        logged_in(&st, 42);
+        let room = st.room().unwrap();
+        assert_eq!(room["room"]["title"], "旧标题");
     }
 
     #[test]

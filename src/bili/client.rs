@@ -211,6 +211,17 @@ impl BiliApi {
         )
     }
 
+    pub fn room_info_live(&self, room_id: i64) -> Result<Value> {
+        let d = self.data(
+            "GET",
+            "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom",
+            &[("room_id".into(), room_id.to_string())],
+            None,
+            None,
+        )?;
+        Ok(obj(&d, "room_info").clone())
+    }
+
     pub fn room_news(&self, room_id: i64, uid: i64) -> Result<String> {
         let d = self.data(
             "GET",
@@ -242,7 +253,7 @@ impl BiliApi {
             cookie,
             vec![
                 ("room_id".into(), room_id.to_string()),
-                ("platform".into(), "pc_link".into()),
+                ("platform".into(), "web".into()),
                 ("title".into(), title.into()),
             ],
         )?;
@@ -262,7 +273,7 @@ impl BiliApi {
             vec![
                 ("room_id".into(), room_id.to_string()),
                 ("area_id".into(), area_id.to_string()),
-                ("platform".into(), "pc_link".into()),
+                ("platform".into(), "web".into()),
             ],
         )?;
         self.data(
@@ -877,6 +888,41 @@ pub fn qr_svg(text: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct LastForm(std::sync::Mutex<Vec<(String, String)>>);
+
+    impl Transport for LastForm {
+        fn call(
+            &self,
+            _method: &str,
+            _url: &str,
+            _query: &[(String, String)],
+            form: Option<&[(String, String)]>,
+            _cookie: Option<&str>,
+        ) -> Result<RawResponse> {
+            if let Some(f) = form {
+                *self.0.lock().unwrap() = f.to_vec();
+            }
+            Ok(RawResponse {
+                body: serde_json::json!({"code": 0, "data": {}}),
+                set_cookies: vec![],
+            })
+        }
+    }
+
+    #[test]
+    fn update_title_sends_web_platform_with_csrf() {
+        let t = Arc::new(LastForm(std::sync::Mutex::new(vec![])));
+        let api = BiliApi::with_transport(t.clone());
+        api.update_title("SESSDATA=s; bili_jct=csrf123", 42, "新标题")
+            .unwrap();
+        let f: BTreeMap<_, _> = t.0.lock().unwrap().iter().cloned().collect();
+        assert_eq!(f["room_id"], "42");
+        assert_eq!(f["title"], "新标题");
+        assert_eq!(f["platform"], "web");
+        assert_eq!(f["csrf"], "csrf123");
+        assert_eq!(f["csrf_token"], "csrf123");
+    }
+
     #[test]
     fn wbi_mixin_key_matches_upstream_vector() {
         let k = WbiKeys::from_img_sub(

@@ -2,16 +2,19 @@
 
 lyblive 是一个面向 AI 与跨平台的 B 站直播助手原型：用 Rust 和 lilyco 维护**一份 20 条命令注册表**，同时派生 CLI、TUI、MCP stdio 服务和自建 axum Web 控制台；Web 前端使用 React 19、Tailwind 4 与 shadcn 组件。
 
-当前版本 0.1.0 是本机可运行原型。它没有内置 B 站账号、不会替用户扫码，也不提供签名安装包或 Android APK；跨平台能力体现在纯 Rust 命令面、条件依赖、feature 门控、本机 Linux / Windows GNU / Android（arm64 与 x86_64）产物与 CI 构建矩阵中。
+当前版本 0.3.6 已包含 Linux 桌面常驻形态（`--float` 无边框悬浮弹幕层 + 状态栏托盘），并修好弹幕链路的发送者头像、礼物图标/数量、进场事件的用户名与类型解析。它没有内置 B 站账号、不会替用户扫码，也不提供签名安装包或 Android APK；跨平台能力体现在纯 Rust 命令面、条件依赖、feature 门控、本机 Linux / Windows GNU / Android（arm64 与 x86_64）产物与 CI 构建矩阵中。
 
 ## 功能
 
 - 扫码登录状态、二维码 SVG、会话状态；默认凭据仅留在内存，开启「记住登录」才写盘（Unix 显式 0600，Windows 依赖用户配置目录 ACL）。
 - 直播间标题、分区、公告；开播、停播、推流地址与密钥；推流密钥默认打码，显式显示后由前端 10 秒恢复打码。
 - 弹幕 WebSocket 监听、zlib/brotli 解码、心跳与重连、300 条上限统计、关键词 Top10，以及供 Web 消费的 SSE 事件流。
+- 弹幕消息带**发送者头像与名字**；礼物显示**图标、名称与数量**；进场 / 关注 / 分享 / 特别关注分别显示，并解析 `INTERACT_WORD_V2` 的 protobuf 载荷。
+- 服务启动后**自动开始弹幕监控**，无需再手动点「开始」。
 - 五个 Web 页签：登录、房间、直播、弹幕、设置；设置页展示命令、参数与安全级别。
 - 给 Agent 的 MCP tools/list 与 tools/call：只读命令直接放行，白名单写命令放行，开停播和发弹幕等高危命令默认拒绝。
 - **弹幕漂浮浮层**：`/overlay` 独立透明页面，`scroll` 飘屏 / `lyrics` 歌词两种模式，可直接作为 OBS「浏览器源」叠加到直播画面上；参数在「设置 → 弹幕漂浮」里调，也支持 URL query 覆盖。
+- **桌面悬浮弹幕层（Linux）**：`lyblive --float` 启动无边框、透明、置顶窗口 + 状态栏托盘；默认鼠标穿透，托盘可切换；可装成 `lyblive-float.service` 常驻，关掉浏览器后仍在。
 
 ## 安装
 
@@ -23,7 +26,7 @@ lyblive 是一个面向 AI 与跨平台的 B 站直播助手原型：用 Rust �
 | Windows（PowerShell） | `irm https://raw.githubusercontent.com/lilyco-42/lyblive/main/install/install.ps1 \| iex` |
 
 脚本会：解析平台 → 下载对应 release 资产 → 比对 `SHA256SUMS` → 安装到 `~/.local/bin/lyblive`（Windows 为 `%LOCALAPPDATA%\lyblive\lyblive.exe`）→ 提示 PATH 与下一步。
-可用 `LYBLIVE_VERSION=v0.1.3` 指定版本，`LYBLIVE_BIN_DIR` 指定目录。
+可用 `LYBLIVE_VERSION=v0.3.6` 指定版本，`LYBLIVE_BIN_DIR` 指定目录；Linux 上加 `LYBLIVE_FLOAT=1` 会一并启用桌面悬浮弹幕层（写入 systemd user 服务并立即启动）。
 
 ### 手动下载
 
@@ -60,6 +63,7 @@ hdc rport tcp:8769 tcp:8769
 3. 「房间」页改标题 / 分区 / 公告；「直播」页开播、停播、看推流地址与密钥（默认打码）。
 4. 想在 OBS 里用：退出 OBS 后执行 `lyblive --obs-install`，重开 OBS 即出现 lyblive 面板。
 5. 开播被 `60043` 拦截时，面板会用 `risk_extra.v_voucher` 生成官方人脸验证页二维码，手机 B 站 App 扫码即可完成。
+6. 想要桌面常驻弹幕：`lyblive --float`（Linux，需带 `desktop` feature 的构建）；或安装时加 `LYBLIVE_FLOAT=1`，脚本会装好 `lyblive-float.service` 并立即启动。
 
 ## Web 模式（不依赖 OBS）
 
@@ -328,6 +332,23 @@ lyblive 不是 OBS 插件，而是 OBS 内置的**自定义浏览器停靠窗口
 
 - **没开播也能预览**：加 `&demo=1` 使用内置样例弹幕（每 0.9s 一条），适合调字号与动效。
 - **数据来源**：与「弹幕」页共用同一个 SSE（`/api/danmu/events`），只在弹幕监听开启时有数据。
+
+## 桌面悬浮弹幕层（Linux）
+
+`lyblive --float` 启动一个 GTK3 无边框、透明、置顶的弹幕窗口，并在状态栏驻留托盘：
+
+- 默认**鼠标穿透**（不挡操作），托盘菜单可切换穿透与关闭。
+- 窗口类型为 `DOCK`、无边框；KDE Wayland 会话下必须 `GDK_BACKEND=x11`，否则窗口装饰不会被忽略（安装脚本生成的服务已内置）。Wayland 原生后端不支持该形态。
+- 关闭浏览器后浮层仍在，数据与 Web 弹幕页共用同一个 `/api/danmu/events`。
+- 常驻服务：
+
+  ```bash
+  LYBLIVE_FLOAT=1 sh install/install.sh     # 安装并立即启动
+  systemctl --user status lyblive-float.service
+  systemctl --user restart lyblive-float.service
+  ```
+
+- 预编译资产只有 Linux 版带 `desktop` feature；macOS / Windows 需自行 `cargo build --release --features desktop`。
 
 ## 前端模块化
 

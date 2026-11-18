@@ -37,7 +37,16 @@ function parseItem(value: unknown): DanmuItem | null {
       user = profile.name;
     }
   }
-  return { ts: record.ts, kind: record.kind, text: record.text, user };
+  return {
+    ts: record.ts,
+    kind: record.kind,
+    text: record.text,
+    user,
+    face: typeof record.face === "string" ? record.face : "",
+    giftName: typeof record.giftName === "string" ? record.giftName : "",
+    giftNum: typeof record.giftNum === "number" ? record.giftNum : 0,
+    giftIcon: typeof record.giftIcon === "string" ? record.giftIcon : "",
+  };
 }
 
 /**
@@ -178,7 +187,7 @@ export function useDanmuFeed(demo = false): DanmuFeed {
       }
       const text = samples[index % samples.length];
       index += 1;
-      const item: DanmuItem = { ts: Date.now(), kind: "danmu", user: "demo", text };
+      const item: DanmuItem = { ts: Date.now(), kind: "danmu", user: `观众${(index % 5) + 1}`, text };
       setItems((prev) => [...prev, item].slice(-MAX_BUFFER));
       setSeq((value) => value + 1);
     }, 900);

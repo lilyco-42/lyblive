@@ -191,3 +191,8 @@ html.lyblive-overlay #root {
     transform: translateX(-50%) translateY(-10px) scale(1);
   }
 }
+
+/* 浮层里的发送者名字：高亮青色，与白色正文区分 */
+.lyblive-danmu-name {
+  color: #7dd3fc;
+}

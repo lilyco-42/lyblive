@@ -333,13 +333,49 @@ function StatCard({ icon: Icon, label, value }: StatCardProps) {
 function Row({ item }: { item: DanmuItem }) {
   const meta = kindMeta(item.kind);
   return (
-    <div className="flex items-start gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-muted/40">
+    <div
+      data-kind={item.kind}
+      className="flex items-start gap-2 rounded-md px-1.5 py-1 text-sm hover:bg-muted/40"
+    >
       <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
         {formatClock(item.ts)}
       </span>
       <span className={"shrink-0 rounded px-1 text-[11px] " + meta.className}>{meta.label}</span>
+      {item.face ? (
+        <img
+          src={item.face}
+          alt=""
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="size-5 shrink-0 rounded-full bg-muted object-cover"
+        />
+      ) : (
+        <span className="size-5 shrink-0 rounded-full bg-muted" />
+      )}
       <span className="shrink-0 max-w-32 truncate text-xs text-muted-foreground">{item.user}</span>
-      <span className={"min-w-0 flex-1 break-words " + kindTextColor(item.kind)}>{item.text}</span>
+      {item.kind === "gift" ? (
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          {item.giftIcon ? (
+            <img
+              src={item.giftIcon}
+              alt={item.giftName || "礼物"}
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              className="size-6 shrink-0 rounded bg-muted object-contain"
+            />
+          ) : (
+            <Gift className="size-5 shrink-0 text-amber-400" />
+          )}
+          <span className="min-w-0 break-words font-medium text-amber-400">
+            {item.giftName || item.text}
+          </span>
+          <span className="shrink-0 rounded bg-amber-500/15 px-1 font-mono text-xs font-semibold text-amber-400 ring-1 ring-amber-500/30">
+            ×{item.giftNum !== undefined && item.giftNum > 0 ? item.giftNum : 1}
+          </span>
+        </span>
+      ) : (
+        <span className={"min-w-0 flex-1 break-words " + kindTextColor(item.kind)}>{item.text}</span>
+      )}
     </div>
   );
 }
