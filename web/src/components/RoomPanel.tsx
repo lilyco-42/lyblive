@@ -16,13 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/EmptyState";
@@ -249,43 +243,29 @@ function RoomEditor({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>一级分区</Label>
-              <Select
+              <Combobox
+                options={areas.map((area) => ({ value: String(area.id), label: area.name }))}
                 value={parentAreaId}
-                onValueChange={(value) => {
+                onChange={(value) => {
                   setParentAreaId(value);
                   setSubAreaId("");
                 }}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={areasLoading ? "加载中…" : "选择一级分区"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {areas.map((area) => (
-                    <SelectItem key={area.id} value={String(area.id)}>
-                      {area.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder={areasLoading ? "加载中…" : "选择一级分区"}
+                searchPlaceholder="搜索一级分区…"
+                disabled={areasLoading}
+              />
             </div>
             <div className="space-y-1.5">
               <Label>二级分区</Label>
-              <Select
+              <Combobox
+                options={subAreas.map((area) => ({ value: String(area.id), label: area.name }))}
                 value={subAreaId}
-                onValueChange={setSubAreaId}
+                onChange={setSubAreaId}
+                placeholder={parentAreaId === "" ? "先选一级分区" : "选择二级分区"}
+                searchPlaceholder="搜索二级分区…"
+                emptyText="没有匹配的二级分区"
                 disabled={parentAreaId === "" || subAreas.length === 0}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder={parentAreaId === "" ? "先选一级分区" : "选择二级分区"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {subAreas.map((area) => (
-                    <SelectItem key={area.id} value={String(area.id)}>
-                      {area.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
             </div>
           </div>
           <Button

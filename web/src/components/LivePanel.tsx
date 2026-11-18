@@ -24,13 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { Separator } from "@/components/ui/separator";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { usePartitions } from "@/hooks/usePartitions";
@@ -292,22 +286,17 @@ export function LivePanel() {
         <CardContent className="space-y-4">
           <div className="space-y-1.5 sm:max-w-72">
             <Label>开播分区（可选，留空用当前分区）</Label>
-            <Select value={areaId} onValueChange={setAreaId}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="使用房间当前分区" />
-              </SelectTrigger>
-              <SelectContent>
-                {subAreas.length === 0 ? (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground">暂无可选分区</div>
-                ) : (
-                  subAreas.map((sub) => (
-                    <SelectItem key={sub.id} value={String(sub.id)}>
-                      {sub.parentName} / {sub.name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
+            <Combobox
+              options={subAreas.map((sub) => ({
+                value: String(sub.id),
+                label: `${sub.parentName} / ${sub.name}`,
+              }))}
+              value={areaId}
+              onChange={setAreaId}
+              placeholder="使用房间当前分区"
+              searchPlaceholder="搜索分区（支持一级名）…"
+              emptyText="暂无可选分区"
+            />
           </div>
 
           <Separator />

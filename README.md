@@ -2,7 +2,7 @@
 
 lyblive 是一个面向 AI 与跨平台的 B 站直播助手原型：用 Rust 和 lilyco 维护**一份 20 条命令注册表**，同时派生 CLI、TUI、MCP stdio 服务和自建 axum Web 控制台；Web 前端使用 React 19、Tailwind 4 与 shadcn 组件。
 
-当前版本 0.3.6 已包含 Linux 桌面常驻形态（`--float` 无边框悬浮弹幕层 + 状态栏托盘），并修好弹幕链路的发送者头像、礼物图标/数量、进场事件的用户名与类型解析。它没有内置 B 站账号、不会替用户扫码，也不提供签名安装包或 Android APK；跨平台能力体现在纯 Rust 命令面、条件依赖、feature 门控、本机 Linux / Windows GNU / Android（arm64 与 x86_64）产物与 CI 构建矩阵中。
+当前版本 0.3.7 已包含 Linux 桌面常驻形态（`--float` 无边框悬浮弹幕层 + 状态栏托盘），并修好弹幕链路的发送者头像、礼物图标/数量、进场事件的用户名与类型解析；分区选择改为**可搜索下拉**，100+ 个二级分区可直接按关键字过滤。它没有内置 B 站账号、不会替用户扫码，也不提供签名安装包或 Android APK；跨平台能力体现在纯 Rust 命令面、条件依赖、feature 门控、本机 Linux / Windows GNU / Android（arm64 与 x86_64）产物与 CI 构建矩阵中。
 
 ## 功能
 
