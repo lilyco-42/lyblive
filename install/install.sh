@@ -81,5 +81,5 @@ fi
 echo
 echo "下一步："
 echo "  1) 浏览器模式（不需要 OBS）：$BIN_DIR/lyblive --open"
-echo "  2) 只启动服务：$BIN_DIR/lyblive --web --no-browser → http://127.0.0.1:8765/"
+echo "  2) 只启动服务：$BIN_DIR/lyblive --web --no-browser → http://127.0.0.1:8769/"
 echo "  3) 想在 OBS 里用：退出 OBS 后执行 $BIN_DIR/lyblive --obs-install"

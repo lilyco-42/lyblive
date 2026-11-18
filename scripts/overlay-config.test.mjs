@@ -35,8 +35,8 @@ test("布尔可从 query 字符串解析", () => {
 })
 
 test("overlayUrl 带全部参数且指向 /overlay", () => {
-  const url = cfg.overlayUrl(cfg.normalizeOverlayConfig({ mode: "lyrics", fontSize: 40 }), "http://127.0.0.1:8765")
-  assert.ok(url.startsWith("http://127.0.0.1:8765/overlay?"), url)
+  const url = cfg.overlayUrl(cfg.normalizeOverlayConfig({ mode: "lyrics", fontSize: 40 }), "http://127.0.0.1:8769")
+  assert.ok(url.startsWith("http://127.0.0.1:8769/overlay?"), url)
   const params = new URL(url).searchParams
   assert.equal(params.get("mode"), "lyrics")
   assert.equal(params.get("fontSize"), "40")

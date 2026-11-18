@@ -33,16 +33,16 @@ irm https://github.com/lilyco-42/lyblive/releases/latest/download/install.ps1 | 
 不安装二进制。电脑上跑 `lyblive --web`，再走 USB 端口转发：
 
 ```bash
-adb reverse tcp:8765 tcp:8765     # Android
-iproxy 8765 8765                  # iOS (libimobiledevice)
-hdc rport tcp:8765 tcp:8765       # 鸿蒙
+adb reverse tcp:8769 tcp:8769     # Android
+iproxy 8769 8769                  # iOS (libimobiledevice)
+hdc rport tcp:8769 tcp:8769       # 鸿蒙
 ```
 
-手机浏览器打开 `http://127.0.0.1:8765/` 即可。端口转发只走 USB，不开放局域网端口，也不改变后端只监听 `127.0.0.1` 的安全策略。
+手机浏览器打开 `http://127.0.0.1:8769/` 即可。端口转发只走 USB，不开放局域网端口，也不改变后端只监听 `127.0.0.1` 的安全策略。
 
 ## 使用
 
-1. `lyblive --web` → 浏览器 `http://127.0.0.1:8765/` → 扫码登录 B 站
+1. `lyblive --web` → 浏览器 `http://127.0.0.1:8769/` → 扫码登录 B 站
 2. 「房间」改标题/分区/公告；「直播」开播、停播、复制推流地址与密钥（默认打码）
 3. OBS 集成：退出 OBS 后 `lyblive --obs-install`，重开即出现 lyblive 面板
 4. 开播遇 `60043`：面板用 `risk_extra.v_voucher` 生成官方人脸验证二维码，手机 B 站 App 扫码完成

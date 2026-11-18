@@ -17,8 +17,8 @@ use crate::policy::{Agent, Local};
 use crate::settings::SharedConfig;
 
 const APP_NAME: &str = "lyblive";
-const DEFAULT_PORT: u16 = 8765;
-/// `--open` 默认跟随常驻服务端口（与 lyblive.service 一致），避免撞上 8765 上的其它程序
+const DEFAULT_PORT: u16 = 8769;
+/// `--open` 默认跟随常驻服务端口（与 lyblive.service 一致），避开 8765 上的 AgentDock
 const OPEN_DEFAULT_PORT: u16 = 8768;
 
 /// 用 /api/health 判断端口上跑的是不是 lyblive（只用 std，不引入 HTTP 依赖）

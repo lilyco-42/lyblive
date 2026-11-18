@@ -44,18 +44,18 @@ lyblive 是一个面向 AI 与跨平台的 B 站直播助手原型：用 Rust �
 
 ~~~bash
 # Android（已装 adb）
-adb reverse tcp:8765 tcp:8765
+adb reverse tcp:8769 tcp:8769
 # iOS（已装 libimobiledevice）
-iproxy 8765 8765
+iproxy 8769 8769
 # 鸿蒙（已装 hdc）
-hdc rport tcp:8765 tcp:8765
+hdc rport tcp:8769 tcp:8769
 ~~~
 
-之后手机浏览器打开 `http://127.0.0.1:8765/`。端口转发只走 USB 通道，**不需要开放局域网端口**，也不会改变后端只监听 `127.0.0.1` 的安全策略。
+之后手机浏览器打开 `http://127.0.0.1:8769/`。端口转发只走 USB 通道，**不需要开放局域网端口**，也不会改变后端只监听 `127.0.0.1` 的安全策略。
 
 ### 首次使用
 
-1. 启动 Web：`lyblive --web`，浏览器打开 `http://127.0.0.1:8765/`。
+1. 启动 Web：`lyblive --web`，浏览器打开 `http://127.0.0.1:8769/`。
 2. 「登录」页扫码登录 B 站（凭据默认只在内存，可选「记住登录」写盘 0600）。
 3. 「房间」页改标题 / 分区 / 公告；「直播」页开播、停播、看推流地址与密钥（默认打码）。
 4. 想在 OBS 里用：退出 OBS 后执行 `lyblive --obs-install`，重开 OBS 即出现 lyblive 面板。
@@ -67,7 +67,7 @@ hdc rport tcp:8765 tcp:8765
 
 ```bash
 lyblive --open           # 服务没跑就启动并打开浏览器；已在跑则只打开浏览器
-lyblive --web            # 只启动服务（默认 127.0.0.1:8765，可加 --no-browser）
+lyblive --web            # 只启动服务（默认 127.0.0.1:8769，可加 --no-browser）
 lyblive --web --no-browser   # 适合交给 systemd / 远程访问
 ```
 
@@ -94,7 +94,7 @@ cargo build --release
 ./target/release/lyblive --web --no-browser
 ~~~
 
-浏览器打开 http://127.0.0.1:8765/ 。无参数启动等价于启动 Web；桌面环境会尝试自动打开浏览器，--no-browser 可禁用。Web 只绑定 127.0.0.1；安全中间件对 API、静态资源和未知路径统一要求 Host 是严格回环 authority（localhost、数值 127.0.0.0/8 或 [::1]，端口必须合法），带 Origin 的 POST 也必须是 http(s) 的完整回环 origin；拒绝 127.evil.example 等 DNS 后缀、userinfo、路径及畸形端口。
+浏览器打开 http://127.0.0.1:8769/ 。无参数启动等价于启动 Web；桌面环境会尝试自动打开浏览器，--no-browser 可禁用。Web 只绑定 127.0.0.1；安全中间件对 API、静态资源和未知路径统一要求 Host 是严格回环 authority（localhost、数值 127.0.0.0/8 或 [::1]，端口必须合法），带 Origin 的 POST 也必须是 http(s) 的完整回环 origin；拒绝 127.evil.example 等 DNS 后缀、userinfo、路径及畸形端口。
 
 ## 四种界面
 
@@ -131,7 +131,7 @@ POST 请求体用 camelCase（areaId、roomId、rememberLogin），API 层映射
 
 ## 配置与安全
 
-- LYBLIVE_PORT：Web 起始端口，默认 8765，端口占用时向后重试 20 个端口。
+- LYBLIVE_PORT：Web 起始端口，默认 8769，端口占用时向后重试 20 个端口。
 - LYBLIVE_CONFIG_HOME：配置目录，默认使用系统 XDG 配置目录下的 lyblive。
 - LILYCO_UI：cli、tui、web、mcp。
 - 登录凭据默认不落盘；开启「记住登录」后写 config.json：Unix 下显式 chmod 0600，Windows 下不做 chmod、依赖用户配置目录的 NTFS ACL 继承（CLI --help 的「0600」为 Unix 语义）。Cookie、CSRF、推流密钥不出现在 Web 会话响应或普通日志中。
