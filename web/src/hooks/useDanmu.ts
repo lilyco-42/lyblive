@@ -97,10 +97,20 @@ export function useDanmu() {
       setStartedAt(data.startedAt);
       setStats(data.stats);
       setError(null);
-      // 页面首次打开发现监控已停时自动恢复一次，避免「打开就是已停止、漏弹幕」
+      // 页面首次打开发现监控已停时自动恢复一次，避免「打开就是已停止、漏弹幕」；
+      // 未登录时不发 start（否则接口 400 会在控制台留下网络错误）
       if (!data.running && !autoStartRef.current) {
         autoStartRef.current = true;
-        void api.danmuStart().catch(() => {});
+        void (async () => {
+          try {
+            const session = await api.session();
+            if (session.loggedIn) {
+              await api.danmuStart();
+            }
+          } catch {
+            // 未登录或网络异常：保持停止，不打扰控制台
+          }
+        })();
       }
       // 服务重启后 startedAt 变化，旧消息已不在后端内存里，清掉避免残留误导
       const startedAt = data.startedAt ?? 0;

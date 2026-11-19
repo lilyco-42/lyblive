@@ -49,7 +49,13 @@ hdc rport tcp:8769 tcp:8769       # 鸿蒙
 5. OBS 集成：退出 OBS 后 `lyblive --obs-install`，重开即出现 lyblive 面板
 6. 开播遇 `60043`：面板用 `risk_extra.v_voucher` 生成官方人脸验证二维码，手机 B 站 App 扫码完成
 
-## 本版变更（0.3.8）
+## 本版变更（0.3.9）
+
+- 桌面悬浮层改用 **Wayland layer-shell**：放在 Overlay 层，**全屏游戏（KDE Wayland）上也能看到弹幕**，且背景保持透明；X11 会话自动回退 GTK DOCK
+- 依赖 `smithay-client-toolkit`（内置 layer-shell 协议，不依赖系统 `gtk-layer-shell`）+ cairo/pango 绘制
+- 修复页面首次打开自动恢复监控在**未登录**时请求 `/api/danmu/start` 返回 400、导致 CI 浏览器冒烟失败的问题
+
+## 0.3.8
 
 - 弹幕监控：页面打开时若处于「已停止」状态，会**自动恢复一次**，不再出现「打开面板没弹幕、还漏进场」的情况
 - README 明确：桌面悬浮层**仅 Linux**（托盘基于 D-Bus）；Windows / macOS 使用 `/overlay`（OBS 浏览器源或浏览器窗口）

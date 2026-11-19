@@ -2,7 +2,7 @@
 
 lyblive 是一个面向 AI 与跨平台的 B 站直播助手原型：用 Rust 和 lilyco 维护**一份 20 条命令注册表**，同时派生 CLI、TUI、MCP stdio 服务和自建 axum Web 控制台；Web 前端使用 React 19、Tailwind 4 与 shadcn 组件。
 
-当前版本 0.3.8 已包含 Linux 桌面常驻形态（`--float` 无边框悬浮弹幕层 + 状态栏托盘），并修好弹幕链路的发送者头像、礼物图标/数量、进场事件的用户名与类型解析；分区选择改为**可搜索下拉**，100+ 个二级分区可直接按关键字过滤；页面打开时若弹幕监控处于停止状态会**自动恢复一次**，避免漏消息。它没有内置 B 站账号、不会替用户扫码，也不提供签名安装包或 Android APK；跨平台能力体现在纯 Rust 命令面、条件依赖、feature 门控、本机 Linux / Windows GNU / Android（arm64 与 x86_64）产物与 CI 构建矩阵中。
+当前版本 0.3.9 已包含 Linux 桌面常驻形态：Wayland 下用 **layer-shell Overlay 层**，**全屏游戏上也能看到弹幕且背景透明**；X11 会话回退 GTK DOCK。弹幕链路的发送者头像、礼物图标/数量、进场事件的用户名与类型解析均已修复；分区选择为**可搜索下拉**，页面打开时若监控停止会**自动恢复一次**。它没有内置 B 站账号、不会替用户扫码，也不提供签名安装包或 Android APK；跨平台能力体现在纯 Rust 命令面、条件依赖、feature 门控、本机 Linux / Windows GNU / Android（arm64 与 x86_64）产物与 CI 构建矩阵中。
 
 ## 功能
 
@@ -335,11 +335,12 @@ lyblive 不是 OBS 插件，而是 OBS 内置的**自定义浏览器停靠窗口
 
 ## 桌面悬浮弹幕层（Linux）
 
-`lyblive --float` 启动一个 GTK3 无边框、透明、置顶的弹幕窗口，并在状态栏驻留托盘：
+`lyblive --float` 启动弹幕浮层，并在状态栏驻留托盘：
 
-- 默认**鼠标穿透**（不挡操作），托盘菜单可切换穿透与关闭。
-- 窗口类型为 `DOCK`、无边框；KDE Wayland 会话下必须 `GDK_BACKEND=x11`，否则窗口装饰不会被忽略（安装脚本生成的服务已内置）。Wayland 原生后端不支持该形态。
-- 关闭浏览器后浮层仍在，数据与 Web 弹幕页共用同一个 `/api/danmu/events`。
+- **KDE Wayland**: 用 `wlr-layer-shell` 的 `Overlay` 层，位于全屏窗口之上——**全屏游戏时也能看到弹幕**，背景完全透明，默认鼠标穿透。
+- **X11 会话**: 自动回退到 GTK3 `DOCK` 窗口（无边框、置顶），但 KWin 的全屏层会盖住它，全屏游戏里看不到。
+- 实现依赖 `smithay-client-toolkit`（协议内置，不需要系统 `gtk-layer-shell`）+ cairo/pango 绘制；`LYBLIVE_FLOAT_DEMO=1` 可显示一条演示弹幕用于排查。
+- 关闭浏览器后浮层仍在，数据与 Web 弹幕页共用同一个 `/api/danmu/status`。
 - 常驻服务：
 
   ```bash
@@ -348,7 +349,7 @@ lyblive 不是 OBS 插件，而是 OBS 内置的**自定义浏览器停靠窗口
   systemctl --user restart lyblive-float.service
   ```
 
-- 预编译资产只有 **Linux** 版带悬浮层（托盘基于 `ksni`，依赖 KDE/D-Bus）。macOS / Windows **没有**预编译悬浮层：这两端请用 `/overlay`（OBS 浏览器源，或浏览器开 `http://127.0.0.1:8768/overlay`）叠加弹幕，不要指望 `--float`。
+- 预编译资产只有 **Linux** 版带悬浮层（托盘基于 `ksni`，依赖 D-Bus）。macOS / Windows **没有**预编译悬浮层：请用 `/overlay`（OBS 浏览器源，或浏览器开 `http://127.0.0.1:8768/overlay`）叠加弹幕。
 
 ## 前端模块化
 
