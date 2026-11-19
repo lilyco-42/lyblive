@@ -74,6 +74,7 @@ export function useDanmu() {
   const mountedRef = useRef(true);
   const sourceRef = useRef<EventSource | null>(null);
   const startedRef = useRef(0);
+  const autoStartRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -96,6 +97,11 @@ export function useDanmu() {
       setStartedAt(data.startedAt);
       setStats(data.stats);
       setError(null);
+      // 页面首次打开发现监控已停时自动恢复一次，避免「打开就是已停止、漏弹幕」
+      if (!data.running && !autoStartRef.current) {
+        autoStartRef.current = true;
+        void api.danmuStart().catch(() => {});
+      }
       // 服务重启后 startedAt 变化，旧消息已不在后端内存里，清掉避免残留误导
       const startedAt = data.startedAt ?? 0;
       const restarted = startedRef.current !== 0 && startedRef.current !== startedAt;

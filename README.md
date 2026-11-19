@@ -348,7 +348,7 @@ lyblive 不是 OBS 插件，而是 OBS 内置的**自定义浏览器停靠窗口
   systemctl --user restart lyblive-float.service
   ```
 
-- 预编译资产只有 Linux 版带 `desktop` feature；macOS / Windows 需自行 `cargo build --release --features desktop`。
+- 预编译资产只有 **Linux** 版带悬浮层（托盘基于 `ksni`，依赖 KDE/D-Bus）。macOS / Windows **没有**预编译悬浮层：这两端请用 `/overlay`（OBS 浏览器源，或浏览器开 `http://127.0.0.1:8768/overlay`）叠加弹幕，不要指望 `--float`。
 
 ## 前端模块化
 
